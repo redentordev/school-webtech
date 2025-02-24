@@ -2,9 +2,7 @@
 
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { FaHome, FaImage } from "react-icons/fa";
-import { CreatePost } from "./CreatePost";
+import { FaHome } from "react-icons/fa";
 
 export function Sidebar() {
   return (
