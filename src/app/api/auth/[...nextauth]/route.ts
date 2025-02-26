@@ -55,6 +55,14 @@ export const authOptions: AuthOptions = {
     }),
   ],
   callbacks: {
+    async signIn({ user, account, profile, email, credentials }) {
+      // Log successful sign-in attempts
+      console.log("Sign-in attempt:", { 
+        user: user?.email || user?.name,
+        provider: account?.provider 
+      });
+      return true;
+    },
     async session({ session, token }) {
       if (session.user && token.sub) {
         // Add the user ID to the session
@@ -72,6 +80,7 @@ export const authOptions: AuthOptions = {
   },
   pages: {
     signIn: "/login",
+    error: "/login", // Add custom error page
   },
   debug: true,
   session: {

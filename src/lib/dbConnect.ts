@@ -36,9 +36,14 @@ async function dbConnect() {
   if (!cached.promise) {
     const opts = {
       bufferCommands: false,
+      // Add TLS options to match the MongoDB client configuration
+      // This helps resolve SSL/TLS handshake issues in production
+      ssl: true,
+      tls: true,
+      tlsAllowInvalidCertificates: process.env.NODE_ENV === 'production',
     };
 
-    cached.promise = mongoose.connect(MONGODB_URI!).then(() => {
+    cached.promise = mongoose.connect(MONGODB_URI!, opts).then(() => {
       return mongoose;
     });
   }
