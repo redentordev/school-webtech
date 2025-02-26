@@ -10,7 +10,9 @@ import dbConnect from "@/lib/dbConnect";
 import User from "@/models/User";
 
 export const authOptions: AuthOptions = {
-  adapter: MongoDBAdapter(clientPromise),
+  adapter: MongoDBAdapter(clientPromise, {
+    databaseName: "Webtech",
+  }),
   providers: [
     GithubProvider({
       clientId: process.env.GITHUB_ID as string,
@@ -71,7 +73,7 @@ export const authOptions: AuthOptions = {
   pages: {
     signIn: "/login",
   },
-  debug: process.env.NODE_ENV === "development",
+  debug: true,
   session: {
     strategy: "jwt",
   },
