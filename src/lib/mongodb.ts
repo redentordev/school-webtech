@@ -10,7 +10,6 @@ const options: MongoClientOptions = {
   // Force TLS version for MongoDB Atlas connections
   // This helps resolve SSL/TLS handshake issues
   tlsAllowInvalidCertificates: process.env.NODE_ENV === 'production',
-  tlsInsecure: process.env.NODE_ENV === 'production',
   directConnection: true,
 };
 

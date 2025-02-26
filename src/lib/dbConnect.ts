@@ -41,6 +41,7 @@ async function dbConnect() {
       ssl: true,
       tls: true,
       tlsAllowInvalidCertificates: process.env.NODE_ENV === 'production',
+      // Don't add any conflicting options
     };
 
     cached.promise = mongoose.connect(MONGODB_URI!, opts).then(() => {
