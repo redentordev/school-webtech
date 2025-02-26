@@ -111,7 +111,7 @@ export function CreatePost() {
           <div className="flex flex-col items-center justify-center gap-4 p-8 border-2 border-dashed border-zinc-800 rounded-lg">
             <FaImage className="w-8 h-8 text-zinc-500" />
             <div className="text-center">
-              <Label htmlFor="image-upload" className="cursor-pointer text-blue-500 hover:text-blue-600">
+              <Label htmlFor="image-upload" className="cursor-pointer text-zinc-400 hover:text-white">
                 Upload a photo
               </Label>
               <Input

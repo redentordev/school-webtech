@@ -1,36 +1,167 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Picwall App
+
+A instagram clone built with Next.js, MongoDB, and NextAuth.js.
+
+## Features
+
+- User authentication (login/register) with:
+  - Email and password
+  - GitHub OAuth
+  - Google OAuth
+- MongoDB integration
+- AWS S3 for image storage
+- Post creation with image uploads
+- Dark theme UI
+- Responsive design
 
 ## Getting Started
 
-First, run the development server:
+### Prerequisites
+
+- Node.js 18+ 
+- Docker and Docker Compose
+- AWS account (for S3 image storage)
+
+### Installation
+
+1. Clone the repository
+
+```bash
+git clone <repository-url>
+cd instagram-clone
+```
+
+2. Install dependencies
+
+```bash
+npm install
+```
+
+3. Set up environment variables
+
+Copy the example environment file and update the values:
+
+```bash
+cp .env.example .env.local
+```
+
+You'll need to set up:
+- OAuth applications for GitHub and Google
+- AWS S3 bucket for image storage
+- MongoDB connection (or use the provided Docker setup)
+
+4. Start MongoDB with Docker Compose
+
+```bash
+docker-compose up -d
+```
+
+5. Run the development server
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000) in your browser.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Authentication
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+The app uses NextAuth.js for authentication with the following providers:
 
-## Learn More
+- Credentials (username/password)
+- GitHub
+- Google
 
-To learn more about Next.js, take a look at the following resources:
+To configure OAuth providers:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+1. Create OAuth applications on GitHub and Google
+2. Add the credentials to your `.env.local` file
+3. Set the callback URL to `http://localhost:3000/api/auth/callback/{provider}` where `{provider}` is either `github` or `google`
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## AWS S3 Setup for Image Uploads
 
-## Deploy on Vercel
+This application uses AWS S3 for storing images. Follow these steps to set up your S3 bucket:
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+1. **Create an AWS account** if you don't have one already
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+2. **Create an S3 bucket**:
+   - Sign in to the AWS Management Console
+   - Navigate to the S3 service
+   - Click "Create bucket"
+   - Choose a unique bucket name
+   - Select a region close to your users
+   - Configure bucket settings (you can leave defaults for testing)
+   - Create the bucket
+
+3. **Configure CORS for your bucket**:
+   - Select your bucket
+   - Go to the "Permissions" tab
+   - Scroll down to "Cross-origin resource sharing (CORS)"
+   - Add the following CORS configuration:
+
+```json
+[
+  {
+    "AllowedHeaders": ["*"],
+    "AllowedMethods": ["GET", "PUT", "POST", "DELETE", "HEAD"],
+    "AllowedOrigins": ["http://localhost:3000"],
+    "ExposeHeaders": []
+  }
+]
+```
+
+4. **Create an IAM user with S3 access**:
+   - Navigate to the IAM service
+   - Go to "Users" and click "Add user"
+   - Choose a username (e.g., "instagram-clone-s3")
+   - Select "Programmatic access"
+   - Create a policy with the following permissions:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "s3:PutObject",
+        "s3:GetObject",
+        "s3:DeleteObject"
+      ],
+      "Resource": "arn:aws:s3:::YOUR-BUCKET-NAME/*"
+    }
+  ]
+}
+```
+
+5. **Get your access keys**:
+   - After creating the user, you'll be shown an Access Key ID and Secret Access Key
+   - Add these to your `.env.local` file:
+
+```
+AWS_REGION=your-selected-region
+AWS_ACCESS_KEY_ID=your-access-key-id
+AWS_SECRET_ACCESS_KEY=your-secret-access-key
+AWS_S3_BUCKET_NAME=your-bucket-name
+```
+
+## Project Structure
+
+- `/src/app`: Next.js app router
+- `/src/components`: React components
+- `/src/lib`: Utility functions
+- `/src/models`: MongoDB models
+
+## Docker
+
+The project includes a Docker setup for MongoDB. To start the database:
+
+```bash
+docker-compose up -d
+```
+
+This will start a MongoDB instance on port 27017 with the credentials specified in the `.env` file.
+
+## License
+
+This project is licensed under the MIT License.
