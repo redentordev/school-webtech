@@ -8,6 +8,7 @@ interface SyncStatus {
   error: string | null;
   lastSynced: Date | null;
   retryCount: number;
+  syncComplete: boolean;
 }
 
 /**
@@ -21,12 +22,17 @@ export default function useProfileSync() {
     syncing: false,
     error: null,
     lastSynced: null,
-    retryCount: 0
+    retryCount: 0,
+    syncComplete: false
   });
 
   // Memoize syncProfile to avoid recreation on each render
   const syncProfile = useCallback(async () => {
-    if (!session?.user) return;
+    // Don't sync if we don't have a session or if sync is already complete
+    if (!session?.user || syncStatus.syncComplete) {
+      console.log("Skipping profile sync - already complete or no session");
+      return;
+    }
 
     try {
       setSyncStatus(prev => ({ 
@@ -46,6 +52,19 @@ export default function useProfileSync() {
       const data = await response.json();
 
       if (!response.ok) {
+        // If we get a conflict error, mark sync as complete to avoid loops
+        if (response.status === 409 && data.emailConflict) {
+          console.warn("Email conflict detected. User exists with different ID.");
+          setSyncStatus({
+            syncing: false,
+            error: data.message,
+            lastSynced: new Date(),
+            retryCount: 0,
+            syncComplete: true // Mark as complete to stop retries
+          });
+          return;
+        }
+        
         throw new Error(data.message || "Failed to sync profile");
       }
 
@@ -68,7 +87,8 @@ export default function useProfileSync() {
         syncing: false,
         error: null,
         lastSynced: new Date(),
-        retryCount: 0 // Reset retry count on success
+        retryCount: 0, // Reset retry count on success
+        syncComplete: true // Mark as complete to avoid further syncs
       });
 
       return data.user;
@@ -78,15 +98,22 @@ export default function useProfileSync() {
         syncing: false,
         error: error instanceof Error ? error.message : "Unknown error occurred",
         lastSynced: null,
-        retryCount: prev.retryCount + 1
+        retryCount: prev.retryCount + 1,
+        syncComplete: false
       }));
     }
-  }, [session, updateSession]);
+  }, [session, updateSession, syncStatus.syncComplete]);
 
   // Sync the profile when the session is available
   useEffect(() => {
     // Don't sync if we don't have a session yet or if we're not authenticated
     if (status !== "authenticated" || !session?.user) return;
+    
+    // Skip if sync is already complete
+    if (syncStatus.syncComplete) {
+      console.log("Profile sync already complete, skipping");
+      return;
+    }
     
     // Only sync if we have no username or we've had an error but haven't retried too many times
     const needsSync = !(session.user as any)?.username;
@@ -100,11 +127,23 @@ export default function useProfileSync() {
       
       return () => clearTimeout(timer);
     }
-  }, [session, status, syncProfile, syncStatus.error, syncStatus.retryCount]);
+    
+    // If user has username, mark sync as complete
+    if ((session.user as any)?.username) {
+      console.log("User already has username, marking sync as complete");
+      setSyncStatus(prev => ({
+        ...prev,
+        syncComplete: true
+      }));
+    }
+  }, [session, status, syncProfile, syncStatus.error, syncStatus.retryCount, syncStatus.syncComplete]);
 
-  // Don't retry more than 3 times automatically
+  // Retry logic for errors - don't retry more than 3 times automatically
   useEffect(() => {
-    if (syncStatus.error && syncStatus.retryCount <= 3) {
+    // Skip if sync is already complete
+    if (syncStatus.syncComplete) return;
+    
+    if (syncStatus.error && syncStatus.retryCount <= 3 && syncStatus.retryCount > 0) {
       const retryDelay = Math.min(2000 * Math.pow(2, syncStatus.retryCount - 1), 10000);
       
       console.log(`Will retry profile sync in ${retryDelay}ms (attempt ${syncStatus.retryCount})`);
@@ -118,7 +157,7 @@ export default function useProfileSync() {
       
       return () => clearTimeout(timer);
     }
-  }, [syncStatus.error, syncStatus.retryCount, syncProfile]);
+  }, [syncStatus.error, syncStatus.retryCount, syncProfile, syncStatus.syncComplete]);
 
   return {
     ...syncStatus,

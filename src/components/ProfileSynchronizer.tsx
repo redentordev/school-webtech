@@ -11,7 +11,7 @@ import { useEffect } from "react";
  */
 export default function ProfileSynchronizer() {
   const { data: session, status } = useSession();
-  const { syncing, error, retryCount, syncProfile } = useProfileSync();
+  const { syncing, error, retryCount, syncComplete, syncProfile } = useProfileSync();
   
   // Log session status changes for debugging
   useEffect(() => {
@@ -29,15 +29,22 @@ export default function ProfileSynchronizer() {
     }
   }, [status, session]);
 
-  // Log sync errors for debugging
+  // Log sync status changes
   useEffect(() => {
-    if (error) {
+    if (syncComplete) {
+      console.log("Profile sync complete - no further syncing needed");
+    } else if (syncing) {
+      console.log("Profile sync in progress...");
+    } else if (error) {
       console.error(`Profile sync error (attempt ${retryCount}):`, error);
     }
-  }, [error, retryCount]);
+  }, [syncing, error, retryCount, syncComplete]);
 
   // Manual retry if automatic retries exceed limit
   useEffect(() => {
+    // Don't retry if sync is complete
+    if (syncComplete) return;
+    
     if (error && retryCount > 3 && session) {
       // Wait a longer time for manual retry
       const timer = setTimeout(() => {
@@ -47,7 +54,7 @@ export default function ProfileSynchronizer() {
       
       return () => clearTimeout(timer);
     }
-  }, [error, retryCount, session, syncProfile]);
+  }, [error, retryCount, session, syncProfile, syncComplete]);
 
   // This component doesn't render anything
   return null;

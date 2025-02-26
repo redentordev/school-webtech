@@ -25,24 +25,54 @@ export async function POST(req: NextRequest) {
     await dbConnect();
 
     const userId = session.user.id;
+    const userEmail = session.user.email;
     
-    // Get current user data
-    let user = await User.findById(userId).exec();
+    // First check if a user with this email already exists
+    // This handles the case where a user might exist but with a different ID
+    let user = null;
     
-    // If user is not found, but we have a valid session, create the user
+    if (userEmail) {
+      user = await User.findOne({ email: userEmail }).exec();
+      
+      if (user && user._id.toString() !== userId) {
+        console.log(`Found user with email ${userEmail} but different ID. Original: ${user._id}, Session: ${userId}`);
+        // We don't need to create a new user, just update the existing one
+        // This prevents duplicate key errors
+      }
+    }
+    
+    // If no user found by email, try to find by ID
     if (!user) {
+      user = await User.findById(userId).exec();
+    }
+    
+    // If still no user, create a new one
+    if (!user) {
+      // Before creating, double check there's no conflict
+      if (userEmail) {
+        const duplicateCheck = await User.findOne({ email: userEmail }).exec();
+        if (duplicateCheck) {
+          console.error(`Duplicate user detected. Email: ${userEmail}, DB ID: ${duplicateCheck._id}, Session ID: ${userId}`);
+          return NextResponse.json({
+            success: false, 
+            message: "User already exists with this email",
+            emailConflict: true
+          }, { status: 409 });
+        }
+      }
+      
       console.log("User not found in database. Creating user from OAuth data:", userId);
       
       // Create a new user record using session data
       user = new User({
         _id: userId, // Use the same ID as in the session
         name: session.user.name,
-        email: session.user.email,
+        email: userEmail,
         image: session.user.image,
         emailVerified: new Date(), // Mark as verified since it came from OAuth
         // Generate username from email or name
-        username: session.user.email 
-          ? session.user.email.split('@')[0] 
+        username: userEmail 
+          ? userEmail.split('@')[0] 
           : session.user.name?.replace(/\s+/g, '').toLowerCase() || `user_${userId.substring(0, 6)}`,
       });
       
@@ -62,8 +92,8 @@ export async function POST(req: NextRequest) {
       // Try different sources for username
       let baseUsername = '';
       
-      if (session.user.email) {
-        baseUsername = session.user.email.split('@')[0];
+      if (userEmail) {
+        baseUsername = userEmail.split('@')[0];
       } else if (session.user.name) {
         baseUsername = session.user.name.replace(/\s+/g, '').toLowerCase();
       } else {
@@ -74,7 +104,7 @@ export async function POST(req: NextRequest) {
       // Check if username exists
       const existingWithUsername = await User.findOne({ 
         username: baseUsername, 
-        _id: { $ne: userId } 
+        _id: { $ne: user._id } 
       }).exec();
       
       if (!existingWithUsername) {
@@ -103,9 +133,10 @@ export async function POST(req: NextRequest) {
       console.log("Updated user profile:", userId, "username:", user.username);
     }
 
-    // Return safe user data
+    // Return safe user data and sync status
     return NextResponse.json({
       success: true,
+      syncComplete: true, // Add this flag to indicate no further sync needed
       user: {
         id: user._id.toString(),
         name: user.name || null,
@@ -117,6 +148,29 @@ export async function POST(req: NextRequest) {
     });
     
   } catch (error) {
+    // Handle duplicate key error specifically
+    if (error && 
+        typeof error === 'object' && 
+        'name' in error && 
+        error.name === 'MongoServerError' && 
+        'code' in error && 
+        error.code === 11000) {
+      
+      // Safe way to access error message
+      const errorMessage = 'message' in error ? String(error.message) : 'Duplicate key error';
+      console.error("Duplicate key error:", errorMessage);
+      
+      return NextResponse.json(
+        { 
+          success: false, 
+          message: "User with this email already exists", 
+          error: errorMessage,
+          emailConflict: true
+        },
+        { status: 409 }
+      );
+    }
+    
     console.error("Error syncing profile:", error);
     return NextResponse.json(
       { success: false, message: "Internal server error", error: String(error) },
