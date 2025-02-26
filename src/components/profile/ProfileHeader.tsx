@@ -5,7 +5,8 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { EditProfileModal } from './EditProfileModal';
 import { User } from '@/types/user';
-import { S3Image } from '@/components/S3Image';
+import { SettingsIcon } from 'lucide-react';
+import Image from 'next/image';
 
 interface ProfileHeaderProps {
   user: User;
@@ -16,6 +17,14 @@ interface ProfileHeaderProps {
 export function ProfileHeader({ user, postCount, onProfileUpdate }: ProfileHeaderProps) {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
 
+  // Generate direct S3 URL for an image
+  const getDirectS3Url = (imageKey: string) => {
+    const region = 'us-east-1';
+    const bucket = 'picwall-webtech'; 
+    const encodedKey = encodeURIComponent(imageKey).replace(/%2F/g, '/');
+    return `https://${bucket}.s3.${region}.amazonaws.com/${encodedKey}`;
+  };
+
   return (
     <div className="p-6 border-b border-zinc-800">
       <div className="flex flex-col md:flex-row items-center gap-8">
@@ -23,12 +32,11 @@ export function ProfileHeader({ user, postCount, onProfileUpdate }: ProfileHeade
         <div className="relative">
           {user.imageKey ? (
             <div className="w-24 h-24 md:w-36 md:h-36 rounded-full overflow-hidden relative">
-              <S3Image 
-                imageKey={user.imageKey}
+              <Image 
+                src={getDirectS3Url(user.imageKey)}
                 alt={user.name || 'User'}
                 fill
                 className="object-cover"
-                fallbackSrc="/images/default-avatar.png"
               />
             </div>
           ) : (

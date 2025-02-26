@@ -1,13 +1,14 @@
 'use client';
 
 import { useState } from 'react';
+import { useSession } from 'next-auth/react';
+import useSWR, { KeyedMutator } from 'swr';
 import { Button } from '@/components/ui/button';
 import { Loader2 } from 'lucide-react';
 import { Post } from '@/types/post';
 import { PostModal } from './PostModal';
 import { S3Image } from '@/components/S3Image';
-import useSWR, { KeyedMutator } from 'swr';
-import { useS3ImageContext } from '@/contexts/S3ImageContext';
+import Image from 'next/image';
 
 interface ProfilePostsProps {
   userId: string;
@@ -23,27 +24,14 @@ interface PostsResponse {
   };
 }
 
-interface S3ImageContextType {
-  registerMutator: (key: string, mutate: KeyedMutator<any>) => void;
-  unregisterMutator: (key: string) => void;
-  invalidateImages: () => void;
-}
-
 export function ProfilePosts({ userId }: ProfilePostsProps) {
+  const { data: session } = useSession();
   const [page, setPage] = useState(1);
   const [allPosts, setAllPosts] = useState<Post[]>([]);
   const [selectedPost, setSelectedPost] = useState<Post | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [imageUrlCache, setImageUrlCache] = useState<Record<string, string>>({});
   
-  // Try to use the S3ImageContext if available
-  let s3ImageContext: S3ImageContextType | undefined;
-  try {
-    s3ImageContext = useS3ImageContext();
-  } catch (error) {
-    // Context not available, will handle gracefully
-  }
-
   // Use SWR to fetch posts
   const { data, error, isLoading, mutate } = useSWR<PostsResponse>(
     `/api/user/posts?page=${page}&limit=12`,
@@ -56,43 +44,29 @@ export function ProfilePosts({ userId }: ProfilePostsProps) {
     }
   );
 
-  // Use SWR to fetch image URLs for the posts
-  const fetchImageUrl = async (imageKey: string) => {
-    // If we already have the URL cached, return it
+  // Generate direct S3 URL for an image
+  const getDirectS3Url = (imageKey: string) => {
+    const region = 'us-east-1';
+    const bucket = 'picwall-webtech'; 
+    const encodedKey = encodeURIComponent(imageKey).replace(/%2F/g, '/');
+    return `https://${bucket}.s3.${region}.amazonaws.com/${encodedKey}`;
+  };
+
+  // Cache image URLs for better performance
+  const getImageUrl = (imageKey: string) => {
     if (imageUrlCache[imageKey]) {
       return imageUrlCache[imageKey];
     }
-
-    try {
-      const response = await fetch(`/api/s3/url?key=${encodeURIComponent(imageKey)}`);
-      if (!response.ok) {
-        throw new Error('Failed to fetch image URL');
-      }
-      const data = await response.json();
-      
-      // Cache the URL
-      setImageUrlCache(prev => ({
-        ...prev,
-        [imageKey]: data.url
-      }));
-      
-      return data.url;
-    } catch (error) {
-      console.error('Error fetching image URL:', error);
-      // Use a direct URL as fallback
-      const region = 'us-east-1';
-      const bucket = 'picwall-webtech'; 
-      const encodedKey = encodeURIComponent(imageKey).replace(/%2F/g, '/');
-      const publicUrl = `https://${bucket}.s3.${region}.amazonaws.com/${encodedKey}`;
-      
-      // Cache the fallback URL
-      setImageUrlCache(prev => ({
-        ...prev,
-        [imageKey]: publicUrl
-      }));
-      
-      return publicUrl;
-    }
+    
+    const directUrl = getDirectS3Url(imageKey);
+    
+    // Cache the URL
+    setImageUrlCache(prev => ({
+      ...prev,
+      [imageKey]: directUrl
+    }));
+    
+    return directUrl;
   };
 
   // Update allPosts when data changes
@@ -103,7 +77,7 @@ export function ProfilePosts({ userId }: ProfilePostsProps) {
       // Prefetch image URLs for these posts
       data.posts.forEach(post => {
         if (post.imageKey) {
-          fetchImageUrl(post.imageKey);
+          getImageUrl(post.imageKey);
         }
       });
     } else if (page > 1 && allPosts.length < page * 12) {
@@ -113,7 +87,7 @@ export function ProfilePosts({ userId }: ProfilePostsProps) {
       // Prefetch image URLs for the new posts
       data.posts.forEach(post => {
         if (post.imageKey) {
-          fetchImageUrl(post.imageKey);
+          getImageUrl(post.imageKey);
         }
       });
     }
@@ -143,11 +117,6 @@ export function ProfilePosts({ userId }: ProfilePostsProps) {
     // Refresh the post data
     mutate();
     
-    // Invalidate S3Image cache if needed
-    if (s3ImageContext) {
-      s3ImageContext.invalidateImages();
-    }
-    
     // Clear our local image URL cache
     setImageUrlCache({});
   };
@@ -158,11 +127,6 @@ export function ProfilePosts({ userId }: ProfilePostsProps) {
     
     // Refresh the post data
     mutate();
-    
-    // Invalidate S3Image cache if needed
-    if (s3ImageContext) {
-      s3ImageContext.invalidateImages();
-    }
     
     // Clear our local image URL cache
     setImageUrlCache({});
@@ -227,24 +191,17 @@ export function ProfilePosts({ userId }: ProfilePostsProps) {
             className="aspect-square relative cursor-pointer rounded-sm overflow-hidden border border-zinc-800"
             onClick={() => openPostModal(post)}
           >
-            {/* Use standard img tag instead of S3Image component for better handling of large images */}
-            {imageUrlCache[post.imageKey] ? (
-              <img
-                src={imageUrlCache[post.imageKey]}
-                alt={post.caption || 'Post'}
-                className="object-cover w-full h-full hover:opacity-90 transition-opacity"
-                onError={() => {
-                  // If image fails to load, try to refetch the URL
-                  fetchImageUrl(post.imageKey);
-                }}
-              />
-            ) : (
-              <div className="flex items-center justify-center bg-zinc-800 w-full h-full">
-                <Loader2 className="h-8 w-8 animate-spin text-zinc-400" />
-                {/* Attempt to fetch the image URL if not already in progress */}
-                {post.imageKey && !imageUrlCache[post.imageKey] && fetchImageUrl(post.imageKey)}
-              </div>
-            )}
+            {/* Use Next/Image with direct S3 URL */}
+            <Image
+              src={getImageUrl(post.imageKey)}
+              alt={post.caption || 'Post'}
+              fill
+              className="object-cover hover:opacity-90 transition-opacity"
+              sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
+              onError={() => {
+                console.error(`Failed to load image with key: ${post.imageKey}`);
+              }}
+            />
           </div>
         ))}
         

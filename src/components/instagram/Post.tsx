@@ -124,6 +124,14 @@ export function Post({
     }
   };
 
+  // Generate direct S3 URL for an image
+  const getDirectS3Url = (imageKey: string) => {
+    const region = 'us-east-1';
+    const bucket = 'picwall-webtech'; 
+    const encodedKey = encodeURIComponent(imageKey).replace(/%2F/g, '/');
+    return `https://${bucket}.s3.${region}.amazonaws.com/${encodedKey}`;
+  };
+
   return (
     <>
       <div 
@@ -144,14 +152,16 @@ export function Post({
               quality={75}
             />
           ) : postData ? (
-            // For real posts, use img tag like in the modal for more reliability with large images
-            <div className="w-full h-full">
-              <img
-                src={image}
-                alt="Post content"
-                className="object-cover w-full h-full"
-              />
-            </div>
+            // For real posts, use Next.js Image with direct S3 URL
+            <Image
+              src={postData.imageKey ? getDirectS3Url(postData.imageKey) : image}
+              alt="Post content"
+              fill
+              className="object-cover"
+              sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 500px"
+              loading="lazy"
+              quality={75}
+            />
           ) : (
             // Fallback if somehow neither condition is met
             <Image

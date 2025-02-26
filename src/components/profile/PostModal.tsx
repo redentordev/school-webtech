@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
+import { useSession } from 'next-auth/react';
 import { 
   Dialog, 
   DialogContent,
@@ -14,7 +15,7 @@ import { Loader2 } from 'lucide-react';
 import { Post } from '@/types/post';
 import { User } from '@/types/user';
 import { formatDistanceToNow } from 'date-fns';
-import { S3Image } from '@/components/S3Image';
+import Image from 'next/image';
 
 interface PostModalProps {
   isOpen: boolean;
@@ -125,13 +126,24 @@ export function PostModal({ isOpen, onClose, post, onPostUpdate, onPostDelete }:
     }
   };
 
+  // Format date for display
   const formatDate = (dateString: string) => {
     try {
       return formatDistanceToNow(new Date(dateString), { addSuffix: true });
-    } catch (error) {
+    } catch (error: unknown) {
       return 'some time ago';
     }
   };
+
+  // Generate direct S3 URL for an image
+  const getDirectS3Url = (imageKey: string) => {
+    const region = 'us-east-1';
+    const bucket = 'picwall-webtech'; 
+    const encodedKey = encodeURIComponent(imageKey).replace(/%2F/g, '/');
+    return `https://${bucket}.s3.${region}.amazonaws.com/${encodedKey}`;
+  };
+
+  if (!isOpen) return null;
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
@@ -140,13 +152,13 @@ export function PostModal({ isOpen, onClose, post, onPostUpdate, onPostDelete }:
           {/* Image */}
           <div className="md:w-3/5 h-[300px] md:h-full relative bg-zinc-950 flex items-center justify-center border-r border-zinc-800">
             <div className="w-full h-full relative">
-              <S3Image
-                imageKey={post.imageKey}
+              <Image
+                src={getDirectS3Url(post.imageKey)}
                 alt={post.caption || 'Post'}
                 fill
                 className="object-contain"
                 sizes="(max-width: 768px) 100vw, 60vw"
-                showLoadingSpinner={true}
+                priority
               />
             </div>
           </div>
