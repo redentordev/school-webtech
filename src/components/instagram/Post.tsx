@@ -268,6 +268,7 @@ export function Post({
             onClose={() => setIsModalOpen(false)}
             post={postData}
             onPostUpdate={handlePostUpdate}
+            isFeedContext={true}
           />
         </>
       )}

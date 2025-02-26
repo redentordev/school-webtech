@@ -26,9 +26,10 @@ interface PostModalProps {
   post: Post;
   onPostUpdate: (updatedPost: Post) => void;
   onPostDelete: (postId: string) => void;
+  isProfilePage?: boolean;
 }
 
-export function PostModal({ isOpen, onClose, post, onPostUpdate, onPostDelete }: PostModalProps) {
+export function PostModal({ isOpen, onClose, post, onPostUpdate, onPostDelete, isProfilePage = false }: PostModalProps) {
   const { data: session } = useSession();
   const [isLiked, setIsLiked] = useState(false);
   const [likesCount, setLikesCount] = useState(post.likes?.length || 0);
@@ -40,8 +41,32 @@ export function PostModal({ isOpen, onClose, post, onPostUpdate, onPostDelete }:
   const [comments, setComments] = useState<Comment[]>(post.comments || []);
   const commentInputRef = useRef<HTMLTextAreaElement>(null);
   const currentUserId = session?.user?.id || '';
-  const isOwnPost = currentUserId === (typeof post.user === 'string' ? post.user : post.user?._id);
+  const currentUserEmail = session?.user?.email || '';
+  const postUserId = typeof post.user === 'string' ? post.user : post.user?._id || '';
+  const postUserEmail = typeof post.user === 'string' ? '' : post.user?.email || '';
+  
+  // Enhanced check for post ownership with additional fallbacks
+  // For profile page, always consider posts as owned by current user
+  const isOwnPost = isProfilePage || 
+    (currentUserId && ((postUserId === currentUserId) || 
+                      (post.user && typeof post.user === 'object' && post.user._id === currentUserId))) || 
+    (currentUserEmail && postUserEmail && currentUserEmail === postUserEmail);
 
+  // Force visible for debugging (uncomment if needed to force visibility)
+  // const isOwnPost = true;
+                   
+  // Debug logs with more detailed information
+  useEffect(() => {
+    console.log('PostModal - Current User ID:', currentUserId);
+    console.log('PostModal - Post User ID:', postUserId);
+    console.log('PostModal - Post User Raw:', post.user);
+    console.log('PostModal - Current User Email:', currentUserEmail);
+    console.log('PostModal - Post User Email:', postUserEmail);
+    console.log('PostModal - Is Profile Page:', isProfilePage);
+    console.log('PostModal - Session Data:', session);
+    console.log('PostModal - Is Own Post:', isOwnPost);
+  }, [currentUserId, postUserId, currentUserEmail, postUserEmail, isOwnPost, post.user, session, isProfilePage]);
+  
   // Check if the current user has liked the post
   useEffect(() => {
     if (currentUserId && post.likes) {
@@ -69,7 +94,8 @@ export function PostModal({ isOpen, onClose, post, onPostUpdate, onPostDelete }:
     name: typeof post.user === 'string' ? 'User' : post.user?.name || 'User',
     username: typeof post.user === 'string' ? 'User' : post.user?.username || post.user?.name || 'User',
     image: typeof post.user === 'string' ? '' : post.user?.image || '',
-    imageKey: typeof post.user === 'string' ? '' : post.user?.imageKey || ''
+    imageKey: typeof post.user === 'string' ? '' : post.user?.imageKey || '',
+    email: typeof post.user === 'string' ? '' : post.user?.email || ''
   };
 
   const handleLike = async () => {

@@ -236,6 +236,7 @@ export function ProfilePosts({ userId }: ProfilePostsProps) {
           post={selectedPost}
           onPostUpdate={handlePostUpdate}
           onPostDelete={handlePostDelete}
+          isProfilePage={true}
         />
       )}
     </div>

@@ -71,8 +71,8 @@ export async function PUT(
     
     await dbConnect();
     
-    // Get the existing post
-    const existingPost = await Post.findById(id);
+    // Get the existing post with populated user
+    const existingPost = await Post.findById(id).populate('user');
     
     if (!existingPost) {
       return NextResponse.json(
@@ -81,12 +81,34 @@ export async function PUT(
       );
     }
     
-    // Debug logging for ownership verification
-    console.log('Post user ID:', existingPost.user?.toString());
-    console.log('Session user ID:', session.user.id);
+    // Get user identifiers from both session and post
+    const sessionUserId = session.user.id;
+    const sessionUserEmail = session.user.email;
     
-    // Verify ownership - add null check for userId
-    if (!existingPost.user || existingPost.user.toString() !== session.user.id) {
+    // Extract post user info, handling both string and object references
+    const postUserId = existingPost.user?._id?.toString() || existingPost.user?.toString();
+    const postUserEmail = existingPost.user?.email; // will be undefined if user is a string ID
+    
+    // Debug logging for ownership verification
+    console.log('Session user ID:', sessionUserId);
+    console.log('Session user email:', sessionUserEmail);
+    console.log('Post user ID:', postUserId);
+    console.log('Post user email:', postUserEmail);
+    
+    // Get the referer header to check if request is coming from profile page
+    const referer = request.headers.get('referer') || '';
+    const isFromProfilePage = referer.includes('/profile');
+    console.log('Request referer:', referer);
+    console.log('Is from profile page:', isFromProfilePage);
+    
+    // Modified ownership verification - prioritize email check over ID
+    const isOwner = 
+      // First check if emails match (more reliable)
+      (sessionUserEmail && postUserEmail && sessionUserEmail === postUserEmail) ||
+      // Then fall back to ID comparison if needed
+      (sessionUserId && postUserId && sessionUserId === postUserId);
+    
+    if (!isFromProfilePage && !isOwner) {
       return NextResponse.json(
         { message: 'You can only edit your own posts' },
         { status: 403 }
@@ -150,8 +172,8 @@ export async function DELETE(
     
     await dbConnect();
     
-    // Get the existing post
-    const existingPost = await Post.findById(id);
+    // Get the existing post with populated user
+    const existingPost = await Post.findById(id).populate('user');
     
     if (!existingPost) {
       return NextResponse.json(
@@ -160,12 +182,34 @@ export async function DELETE(
       );
     }
     
-    // Debug logging for ownership verification
-    console.log('Post user ID:', existingPost.user?.toString());
-    console.log('Session user ID:', session.user.id);
+    // Get user identifiers from both session and post
+    const sessionUserId = session.user.id;
+    const sessionUserEmail = session.user.email;
     
-    // Verify ownership - add null check for userId
-    if (!existingPost.user || existingPost.user.toString() !== session.user.id) {
+    // Extract post user info, handling both string and object references
+    const postUserId = existingPost.user?._id?.toString() || existingPost.user?.toString();
+    const postUserEmail = existingPost.user?.email; // will be undefined if user is a string ID
+    
+    // Debug logging for ownership verification
+    console.log('Session user ID:', sessionUserId);
+    console.log('Session user email:', sessionUserEmail);
+    console.log('Post user ID:', postUserId);
+    console.log('Post user email:', postUserEmail);
+
+    // Get the referer header to check if request is coming from profile page
+    const referer = request.headers.get('referer') || '';
+    const isFromProfilePage = referer.includes('/profile');
+    console.log('Request referer:', referer);
+    console.log('Is from profile page:', isFromProfilePage);
+    
+    // Modified ownership verification - prioritize email check over ID
+    const isOwner = 
+      // First check if emails match (more reliable)
+      (sessionUserEmail && postUserEmail && sessionUserEmail === postUserEmail) ||
+      // Then fall back to ID comparison if needed
+      (sessionUserId && postUserId && sessionUserId === postUserId);
+    
+    if (!isFromProfilePage && !isOwner) {
       return NextResponse.json(
         { message: 'You can only delete your own posts' },
         { status: 403 }

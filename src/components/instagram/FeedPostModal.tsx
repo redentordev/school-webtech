@@ -37,6 +37,7 @@ interface PostUser {
   username?: string;
   image?: string;
   imageKey?: string;
+  email?: string;
 }
 
 interface Post {
@@ -56,9 +57,10 @@ interface FeedPostModalProps {
   onClose: () => void;
   post: Post;
   onPostUpdate: (updatedPost: Post) => void;
+  isFeedContext?: boolean;
 }
 
-export function FeedPostModal({ isOpen, onClose, post, onPostUpdate }: FeedPostModalProps) {
+export function FeedPostModal({ isOpen, onClose, post, onPostUpdate, isFeedContext = true }: FeedPostModalProps) {
   const { data: session } = useSession();
   const [isLiked, setIsLiked] = useState(false);
   const [likesCount, setLikesCount] = useState(post.likes.length);
@@ -67,6 +69,8 @@ export function FeedPostModal({ isOpen, onClose, post, onPostUpdate }: FeedPostM
   const [error, setError] = useState('');
   const [comments, setComments] = useState<Comment[]>(post.comments);
   const commentInputRef = useRef<HTMLTextAreaElement>(null);
+  const [isEditing, setIsEditing] = useState(false);
+  const [caption, setCaption] = useState(post.caption || '');
   
   // Ensure user data has fallbacks for missing properties
   const safeUser = {
@@ -74,11 +78,35 @@ export function FeedPostModal({ isOpen, onClose, post, onPostUpdate }: FeedPostM
     name: post.user?.name || 'User',
     username: post.user?.username || post.user?.name || 'User',
     image: post.user?.image || '',
-    imageKey: post.user?.imageKey || ''
+    imageKey: post.user?.imageKey || '',
+    email: post.user?.email || ''
   };
 
   const currentUserId = session?.user?.id;
-  const isOwnPost = currentUserId && safeUser._id === currentUserId;
+  const currentUserEmail = session?.user?.email;
+  const postUserId = typeof post.user === 'string' ? post.user : post.user?._id || '';
+  const postUserEmail = typeof post.user === 'string' ? '' : post.user?.email || '';
+  
+  // Enhanced check for post ownership with additional fallbacks
+  const isOwnPost = 
+    (currentUserId && ((postUserId === currentUserId) || 
+                      (post.user && typeof post.user === 'object' && post.user._id === currentUserId))) || 
+    (currentUserEmail && postUserEmail && currentUserEmail === postUserEmail);
+
+  // Force visible for debugging (uncomment if needed to force visibility)
+  // const isOwnPost = true;
+                   
+  // Debug logs with more detailed information
+  useEffect(() => {
+    console.log('FeedPostModal - Current User ID:', currentUserId);
+    console.log('FeedPostModal - Post User ID:', postUserId);
+    console.log('FeedPostModal - Post User Raw:', post.user);
+    console.log('FeedPostModal - Current User Email:', currentUserEmail);
+    console.log('FeedPostModal - Post User Email:', postUserEmail);
+    console.log('FeedPostModal - Is Feed Context:', isFeedContext);
+    console.log('FeedPostModal - Session Data:', session);
+    console.log('FeedPostModal - Is Own Post:', isOwnPost);
+  }, [currentUserId, postUserId, currentUserEmail, postUserEmail, isOwnPost, post.user, session, isFeedContext]);
 
   // Check if the post is liked by the current user
   useEffect(() => {
@@ -220,6 +248,75 @@ export function FeedPostModal({ isOpen, onClose, post, onPostUpdate }: FeedPostM
     }
   }, [post, post.comments]);
 
+  const handleUpdateCaption = async () => {
+    try {
+      setIsSubmitting(true);
+      setError('');
+
+      const response = await fetch(`/api/posts/${post._id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ caption }),
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.message || 'Failed to update post');
+      }
+
+      const data = await response.json();
+      
+      // Update the post with new caption
+      onPostUpdate({
+        ...post,
+        caption,
+      });
+      
+      setIsEditing(false);
+    } catch (error: any) {
+      setError(error.message || 'Something went wrong');
+      console.error('Error updating post caption:', error);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleDeletePost = async () => {
+    if (!confirm('Are you sure you want to delete this post?')) {
+      return;
+    }
+
+    try {
+      setIsSubmitting(true);
+      setError('');
+
+      const response = await fetch(`/api/posts/${post._id}`, {
+        method: 'DELETE',
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.message || 'Failed to delete post');
+      }
+
+      // Close modal and alert the user
+      onClose();
+      alert('Post deleted successfully! Refresh the page to see changes.');
+      
+      // Redirect to profile if in feed context
+      if (isFeedContext) {
+        window.location.href = '/profile';
+      }
+    } catch (error: any) {
+      setError(error.message || 'Something went wrong');
+      console.error('Error deleting post:', error);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="bg-zinc-900 text-white border-zinc-800 p-0 max-w-4xl h-[90vh] max-h-[90vh] overflow-hidden">
@@ -264,7 +361,8 @@ export function FeedPostModal({ isOpen, onClose, post, onPostUpdate }: FeedPostM
                     variant="ghost"
                     size="icon"
                     className="!outline-none !border-none"
-                    onClick={() => window.location.href = `/profile`}
+                    onClick={() => setIsEditing(!isEditing)}
+                    aria-label="Edit post caption"
                   >
                     <FaEdit className="w-4 h-4" />
                   </Button>
@@ -272,7 +370,9 @@ export function FeedPostModal({ isOpen, onClose, post, onPostUpdate }: FeedPostM
                     variant="ghost"
                     size="icon"
                     className="!outline-none !border-none"
-                    onClick={() => window.location.href = `/profile`}
+                    onClick={handleDeletePost}
+                    disabled={isSubmitting}
+                    aria-label="Delete post"
                   >
                     <FaTrash className="w-4 h-4" />
                   </Button>
@@ -282,83 +382,124 @@ export function FeedPostModal({ isOpen, onClose, post, onPostUpdate }: FeedPostM
 
             {/* Caption and Comments */}
             <div className="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-thin scrollbar-thumb-zinc-700 scrollbar-track-transparent">
-              {/* Caption */}
-              {post.caption && (
-                <div className="flex gap-3">
-                  <Avatar className="w-8 h-8">
-                    {safeUser.imageKey ? (
-                      <AvatarImage src={getDirectS3Url(safeUser.imageKey)} alt={safeUser.name} />
-                    ) : safeUser.image ? (
-                      <AvatarImage src={safeUser.image} alt={safeUser.name} />
-                    ) : (
-                      <AvatarFallback className="bg-zinc-800">
-                        {safeUser.name.charAt(0).toUpperCase()}
-                      </AvatarFallback>
-                    )}
-                  </Avatar>
-                  <div>
-                    <p className="text-sm">
-                      <span className="font-medium">{safeUser.username}</span>{' '}
-                      {post.caption}
-                    </p>
-                    <p className="text-xs text-zinc-500 mt-1">
-                      {formatDate(post.createdAt)}
-                    </p>
+              {isEditing ? (
+                <div className="space-y-2">
+                  <Textarea
+                    value={caption}
+                    onChange={(e) => setCaption(e.target.value)}
+                    placeholder="Write a caption..."
+                    className="bg-zinc-800 border-zinc-700 text-white resize-none h-24"
+                    aria-label="Post caption"
+                    id="post-caption"
+                  />
+                  {error && <div className="text-red-500 text-sm">{error}</div>}
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      onClick={() => {
+                        setIsEditing(false);
+                        setCaption(post.caption || '');
+                      }}
+                      disabled={isSubmitting}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="default"
+                      className="bg-zinc-800 text-white hover:bg-zinc-700"
+                      onClick={handleUpdateCaption}
+                      disabled={isSubmitting}
+                    >
+                      {isSubmitting ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        'Save'
+                      )}
+                    </Button>
                   </div>
                 </div>
-              )}
+              ) : (
+                <>
+                  {/* Caption */}
+                  {post.caption && (
+                    <div className="flex gap-3">
+                      <Avatar className="w-8 h-8">
+                        {safeUser.imageKey ? (
+                          <AvatarImage src={getDirectS3Url(safeUser.imageKey)} alt={safeUser.name} />
+                        ) : safeUser.image ? (
+                          <AvatarImage src={safeUser.image} alt={safeUser.name} />
+                        ) : (
+                          <AvatarFallback className="bg-zinc-800">
+                            {safeUser.name.charAt(0).toUpperCase()}
+                          </AvatarFallback>
+                        )}
+                      </Avatar>
+                      <div>
+                        <p className="text-sm">
+                          <span className="font-medium">{safeUser.username}</span>{' '}
+                          {post.caption}
+                        </p>
+                        <p className="text-xs text-zinc-500 mt-1">
+                          {formatDate(post.createdAt)}
+                        </p>
+                      </div>
+                    </div>
+                  )}
 
-              {/* Comments */}
-              <div className="space-y-4 mt-6">
-                <h3 className="text-sm font-medium text-zinc-400" id="comments-heading">Comments</h3>
-                
-                {/* Debug logging outside of JSX */}
-                
-                {comments.length === 0 ? (
-                  <p className="text-sm text-zinc-500" aria-labelledby="comments-heading">No comments yet. Be the first to comment!</p>
-                ) : (
-                  <div className="overflow-y-auto scrollbar-thin scrollbar-thumb-zinc-700 scrollbar-track-transparent max-h-[280px] space-y-4" role="list" aria-labelledby="comments-heading">
-                    {comments.map((comment) => {
-                      // Get the comment user safely - handle both string IDs and object references
-                      const commentUser = typeof comment.user === 'string'
-                        ? { _id: comment.user, name: 'User', image: '', imageKey: '', username: '' }
-                        : comment.user || {};
-                      
-                      // Get user properties safely with fallbacks
-                      const commentUserId = typeof commentUser === 'string' ? commentUser : commentUser._id || '';
-                      const commentUserName = typeof commentUser === 'string' ? 'User' : commentUser.name || 'User';
-                      const commentUserImage = typeof commentUser === 'string' ? '' : commentUser.image || '';
-                      const commentUserImageKey = typeof commentUser === 'string' ? '' : commentUser.imageKey || '';
-                      const commentUsername = typeof commentUser === 'string' ? 'User' : commentUser.username || commentUser.name || 'User';
-                      
-                      return (
-                        <div key={comment._id} className="flex gap-3" role="listitem">
-                          <Avatar className="w-8 h-8">
-                            {commentUserImageKey ? (
-                              <AvatarImage src={getDirectS3Url(commentUserImageKey)} alt={commentUserName} />
-                            ) : commentUserImage ? (
-                              <AvatarImage src={commentUserImage} alt={commentUserName} />
-                            ) : (
-                              <AvatarFallback className="bg-zinc-800">
-                                {typeof commentUserName === 'string' ? commentUserName.charAt(0).toUpperCase() : 'U'}
-                              </AvatarFallback>
-                            )}
-                          </Avatar>
-                          <div>
-                            <p className="text-sm">
-                              <span className="font-medium">{commentUsername}</span>{' '}
-                              {comment.text || comment.content || ''}
-                            </p>
-                            <p className="text-xs text-zinc-500 mt-1">
-                              {formatDate(comment.createdAt)}
-                            </p>
-                          </div>
-                        </div>
-                      );
-                    })}
+                  {/* Comments */}
+                  <div className="space-y-4 mt-6">
+                    <h3 className="text-sm font-medium text-zinc-400" id="comments-heading">Comments</h3>
+                    
+                    {/* Debug logging outside of JSX */}
+                    
+                    {comments.length === 0 ? (
+                      <p className="text-sm text-zinc-500" aria-labelledby="comments-heading">No comments yet. Be the first to comment!</p>
+                    ) : (
+                      <div className="overflow-y-auto scrollbar-thin scrollbar-thumb-zinc-700 scrollbar-track-transparent max-h-[280px] space-y-4" role="list" aria-labelledby="comments-heading">
+                        {comments.map((comment) => {
+                          // Get the comment user safely - handle both string IDs and object references
+                          const commentUser = typeof comment.user === 'string'
+                            ? { _id: comment.user, name: 'User', image: '', imageKey: '', username: '' }
+                            : comment.user || {};
+                          
+                          // Get user properties safely with fallbacks
+                          const commentUserId = typeof commentUser === 'string' ? commentUser : commentUser._id || '';
+                          const commentUserName = typeof commentUser === 'string' ? 'User' : commentUser.name || 'User';
+                          const commentUserImage = typeof commentUser === 'string' ? '' : commentUser.image || '';
+                          const commentUserImageKey = typeof commentUser === 'string' ? '' : commentUser.imageKey || '';
+                          const commentUsername = typeof commentUser === 'string' ? 'User' : commentUser.username || commentUser.name || 'User';
+                          
+                          return (
+                            <div key={comment._id} className="flex gap-3" role="listitem">
+                              <Avatar className="w-8 h-8">
+                                {commentUserImageKey ? (
+                                  <AvatarImage src={getDirectS3Url(commentUserImageKey)} alt={commentUserName} />
+                                ) : commentUserImage ? (
+                                  <AvatarImage src={commentUserImage} alt={commentUserName} />
+                                ) : (
+                                  <AvatarFallback className="bg-zinc-800">
+                                    {typeof commentUserName === 'string' ? commentUserName.charAt(0).toUpperCase() : 'U'}
+                                  </AvatarFallback>
+                                )}
+                              </Avatar>
+                              <div>
+                                <p className="text-sm">
+                                  <span className="font-medium">{commentUsername}</span>{' '}
+                                  {comment.text || comment.content || ''}
+                                </p>
+                                <p className="text-xs text-zinc-500 mt-1">
+                                  {formatDate(comment.createdAt)}
+                                </p>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
+                </>
+              )}
             </div>
 
             {/* Actions */}
