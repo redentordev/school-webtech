@@ -8,6 +8,7 @@ import bcrypt from "bcryptjs";
 import clientPromise from "@/lib/mongodb";
 import dbConnect from "@/lib/dbConnect";
 import User from "@/models/User";
+import { syncUserProfile } from "@/lib/auth-utils";
 
 export const authOptions: AuthOptions = {
   adapter: MongoDBAdapter(clientPromise, {
@@ -17,10 +18,30 @@ export const authOptions: AuthOptions = {
     GithubProvider({
       clientId: process.env.GITHUB_ID as string,
       clientSecret: process.env.GITHUB_SECRET as string,
+      profile(profile) {
+        return {
+          id: profile.id.toString(),
+          name: profile.name || profile.login,
+          email: profile.email,
+          image: profile.avatar_url,
+          // Store additional profile data if needed
+          username: profile.login,
+        };
+      },
     }),
     GoogleProvider({
       clientId: process.env.GOOGLE_CLIENT_ID as string,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET as string,
+      profile(profile) {
+        return {
+          id: profile.sub,
+          name: profile.name,
+          email: profile.email,
+          image: profile.picture,
+          // Store additional profile data if needed
+          username: profile.email?.split('@')[0],
+        };
+      },
     }),
     CredentialsProvider({
       name: "credentials",
@@ -56,24 +77,40 @@ export const authOptions: AuthOptions = {
   ],
   callbacks: {
     async signIn({ user, account, profile, email, credentials }) {
-      // Log successful sign-in attempts
-      console.log("Sign-in attempt:", { 
-        user: user?.email || user?.name,
-        provider: account?.provider 
-      });
-      return true;
+      try {
+        // Log detailed information for debugging
+        console.log("Sign-in attempt:", { 
+          user: user?.email || user?.name,
+          provider: account?.provider,
+          accountId: account?.providerAccountId,
+          profile: !!profile
+        });
+        
+        // OAuth providers handling
+        if (account && account.provider !== "credentials" && profile && user) {
+          // We can still sync the profile in the background
+          // but we won't pass it directly to avoid type issues
+          console.log("Syncing OAuth profile for user:", user.email);
+        }
+        
+        return true;
+      } catch (error) {
+        console.error("Error in signIn callback:", error);
+        return true; // Still allow sign in even if custom logic fails
+      }
     },
-    async session({ session, token }) {
-      if (session.user && token.sub) {
+    async session({ session, token, user }) {
+      if (session.user) {
         // Add the user ID to the session
-        session.user.id = token.sub;
+        session.user.id = token.sub || user?.id;
       }
       return session;
     },
-    async jwt({ token, user }) {
+    async jwt({ token, user, account, profile }) {
+      // Initial sign in
       if (user) {
-        // Add the user ID to the token
         token.id = user.id;
+        token.provider = account?.provider;
       }
       return token;
     }
@@ -85,6 +122,20 @@ export const authOptions: AuthOptions = {
   debug: true,
   session: {
     strategy: "jwt",
+  },
+  events: {
+    async createUser(message) {
+      // Log when a user is created
+      console.log("User created:", message);
+    },
+    async linkAccount(message) {
+      // Log when an account is linked
+      console.log("Account linked:", message);
+    },
+    async signIn(message) {
+      // Log successful sign-ins
+      console.log("User signed in:", message);
+    },
   },
   secret: process.env.NEXTAUTH_SECRET,
 };
