@@ -10,21 +10,44 @@ import { useEffect } from "react";
  * the synchronization process when needed
  */
 export default function ProfileSynchronizer() {
-  const { data: session } = useSession();
-  const { syncing, error, syncProfile } = useProfileSync();
+  const { data: session, status } = useSession();
+  const { syncing, error, retryCount, syncProfile } = useProfileSync();
   
-  // Re-attempt sync if there was an error
+  // Log session status changes for debugging
   useEffect(() => {
-    if (error && session) {
-      // Wait a bit before retrying
+    if (status === "loading") {
+      console.log("Session loading...");
+    } else if (status === "authenticated") {
+      console.log("User authenticated:", {
+        id: session?.user?.id,
+        email: session?.user?.email,
+        // Check if username exists
+        hasUsername: !!(session?.user as any)?.username
+      });
+    } else if (status === "unauthenticated") {
+      console.log("User not authenticated");
+    }
+  }, [status, session]);
+
+  // Log sync errors for debugging
+  useEffect(() => {
+    if (error) {
+      console.error(`Profile sync error (attempt ${retryCount}):`, error);
+    }
+  }, [error, retryCount]);
+
+  // Manual retry if automatic retries exceed limit
+  useEffect(() => {
+    if (error && retryCount > 3 && session) {
+      // Wait a longer time for manual retry
       const timer = setTimeout(() => {
-        console.log("Retrying profile sync after error...");
+        console.log("Last attempt to sync profile...");
         syncProfile();
-      }, 3000);
+      }, 5000);
       
       return () => clearTimeout(timer);
     }
-  }, [error, session, syncProfile]);
+  }, [error, retryCount, session, syncProfile]);
 
   // This component doesn't render anything
   return null;

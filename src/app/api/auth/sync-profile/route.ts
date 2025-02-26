@@ -27,14 +27,30 @@ export async function POST(req: NextRequest) {
     const userId = session.user.id;
     
     // Get current user data
-    const user = await User.findById(userId).exec();
+    let user = await User.findById(userId).exec();
     
+    // If user is not found, but we have a valid session, create the user
     if (!user) {
-      console.error("User not found in database after successful login:", userId);
-      return NextResponse.json(
-        { success: false, message: "User not found" },
-        { status: 404 }
-      );
+      console.log("User not found in database. Creating user from OAuth data:", userId);
+      
+      // Create a new user record using session data
+      user = new User({
+        _id: userId, // Use the same ID as in the session
+        name: session.user.name,
+        email: session.user.email,
+        image: session.user.image,
+        emailVerified: new Date(), // Mark as verified since it came from OAuth
+        // Generate username from email or name
+        username: session.user.email 
+          ? session.user.email.split('@')[0] 
+          : session.user.name?.replace(/\s+/g, '').toLowerCase() || `user_${userId.substring(0, 6)}`,
+      });
+      
+      // Save the new user
+      await user.save();
+      console.log("Created new user from OAuth data:", userId);
+    } else {
+      console.log("Found existing user:", userId);
     }
 
     // Flag to track if we need to save changes
@@ -72,6 +88,12 @@ export async function POST(req: NextRequest) {
     // Make sure email is verified if using OAuth
     if (!user.emailVerified) {
       user.emailVerified = new Date();
+      needsUpdate = true;
+    }
+
+    // If image is missing but available in the session, add it
+    if (!user.image && session.user.image) {
+      user.image = session.user.image;
       needsUpdate = true;
     }
 
