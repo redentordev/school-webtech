@@ -172,7 +172,7 @@ export function Post({
           <div className="flex items-center gap-2">
             <Avatar className="w-8 h-8">
               <AvatarImage src={userAvatar} />
-              <AvatarFallback>{username[0].toUpperCase()}</AvatarFallback>
+              <AvatarFallback>{username && username.length > 0 ? username[0].toUpperCase() : 'U'}</AvatarFallback>
             </Avatar>
             <div className="flex-1">
               <p className="font-medium text-sm">{username}</p>

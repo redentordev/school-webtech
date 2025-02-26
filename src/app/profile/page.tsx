@@ -8,6 +8,7 @@ import { ProfileHeader } from '@/components/profile/ProfileHeader';
 import { ProfilePosts } from '@/components/profile/ProfilePosts';
 import { Loader2 } from 'lucide-react';
 import { User } from '@/types/user';
+import { fetchUserProfile } from '@/lib/profile-utils';
 
 export default function ProfilePage() {
   const { data: session, status } = useSession();
@@ -15,6 +16,7 @@ export default function ProfilePage() {
   const [postCount, setPostCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [retryCount, setRetryCount] = useState(0);
 
   // Redirect to login if not authenticated
   useEffect(() => {
@@ -24,16 +26,25 @@ export default function ProfilePage() {
   }, [status]);
 
   useEffect(() => {
-    const fetchUserProfile = async () => {
+    const loadUserData = async () => {
       try {
         setLoading(true);
-        const response = await fetch('/api/user/profile');
         
-        if (!response.ok) {
-          throw new Error('Failed to fetch profile');
+        // Use our new utility function that tries multiple methods to get the profile
+        const userData = await fetchUserProfile();
+        console.log('Profile data loaded successfully', userData);
+        
+        // Ensure user data has required fields
+        if (!userData) {
+          throw new Error('No user data returned');
         }
         
-        const userData = await response.json();
+        // If username is missing, make sure there's at least a name as fallback
+        if (!userData.username && !userData.name) {
+          const email = userData.email || (session?.user?.email as string);
+          userData.name = email ? email.split('@')[0] : 'User';
+        }
+        
         setUser(userData);
 
         // Fetch post count
@@ -43,16 +54,27 @@ export default function ProfilePage() {
           setPostCount(postsData.pagination.total);
         }
       } catch (error: any) {
+        console.error('Failed to load profile:', error);
         setError(error.message || 'Something went wrong');
+        
+        // If we haven't retried too many times, retry after a delay
+        if (retryCount < 2) {
+          const timer = setTimeout(() => {
+            setRetryCount(prev => prev + 1);
+            setError(''); // Clear error to trigger retry
+          }, 2000);
+          
+          return () => clearTimeout(timer);
+        }
       } finally {
         setLoading(false);
       }
     };
 
-    if (status === 'authenticated') {
-      fetchUserProfile();
+    if (status === 'authenticated' && (error === '' || retryCount > 0)) {
+      loadUserData();
     }
-  }, [status]);
+  }, [status, error, retryCount, session]);
 
   const handleProfileUpdate = (updatedUser: User) => {
     setUser(updatedUser);
@@ -76,6 +98,14 @@ export default function ProfilePage() {
         <div className="flex-1 flex items-center justify-center">
           <div className="text-center text-zinc-400">
             <p>{error || 'Failed to load profile'}</p>
+            {retryCount < 2 && (
+              <button 
+                onClick={() => setRetryCount(prev => prev + 1)}
+                className="mt-4 px-4 py-2 bg-blue-600 rounded hover:bg-blue-700 transition"
+              >
+                Retry
+              </button>
+            )}
           </div>
         </div>
       </div>

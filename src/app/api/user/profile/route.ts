@@ -17,6 +17,7 @@ export async function GET(request: Request) {
     }
 
     const userId = session.user.id;
+    const userEmail = session.user.email;
     
     if (!userId) {
       return NextResponse.json(
@@ -27,10 +28,34 @@ export async function GET(request: Request) {
 
     await dbConnect();
 
-    // Find the user and exclude sensitive fields
-    const user = await User.findById(userId).select('-password -__v');
+    // Use a more robust user lookup strategy
+    // First try to find the user by email (more reliable)
+    let user = null;
+    
+    if (userEmail) {
+      user = await User.findOne({ email: userEmail }).select('-password -__v');
+      
+      if (user && user._id.toString() !== userId) {
+        console.log(`Profile: Found user with email ${userEmail} but different ID. DB ID: ${user._id}, Session ID: ${userId}`);
+      }
+    }
+    
+    // If no user found by email, try to find by ID
+    if (!user) {
+      user = await User.findById(userId).select('-password -__v');
+    }
 
     if (!user) {
+      console.error('User not found by either email or ID:', { userId, userEmail });
+      
+      // Try one more fallback - look for any user with this ID
+      const anyUser = await User.findOne().select('-password -__v');
+      if (anyUser) {
+        console.log('Found at least one user in the database - the specific user is missing');
+      } else {
+        console.log('No users found in the database at all - potential database connection issue');
+      }
+      
       return NextResponse.json(
         { message: 'User not found' },
         { status: 404 }
@@ -60,6 +85,7 @@ export async function PUT(request: Request) {
     }
 
     const userId = session.user.id;
+    const userEmail = session.user.email;
     
     if (!userId) {
       return NextResponse.json(
@@ -72,11 +98,34 @@ export async function PUT(request: Request) {
     
     await dbConnect();
 
+    // Find the user using the same robust strategy
+    let user = null;
+    
+    if (userEmail) {
+      user = await User.findOne({ email: userEmail });
+      
+      if (user && user._id.toString() !== userId) {
+        console.log(`PUT Profile: Found user with email ${userEmail} but different ID. DB ID: ${user._id}, Session ID: ${userId}`);
+      }
+    }
+    
+    if (!user) {
+      user = await User.findById(userId);
+    }
+    
+    if (!user) {
+      console.error('PUT: User not found by either email or ID:', { userId, userEmail });
+      return NextResponse.json(
+        { message: 'User not found' },
+        { status: 404 }
+      );
+    }
+
     // Check if username is already taken by another user
     if (username) {
       const existingUser = await User.findOne({ 
         username, 
-        _id: { $ne: userId } 
+        _id: { $ne: user._id } 
       });
       
       if (existingUser) {
@@ -88,22 +137,16 @@ export async function PUT(request: Request) {
     }
 
     // Update the user profile
-    const updatedUser = await User.findByIdAndUpdate(
-      userId,
-      { 
-        ...(name && { name }),
-        ...(username && { username }),
-        ...(bio !== undefined && { bio })
-      },
-      { new: true }
-    ).select('-password -__v');
-
-    if (!updatedUser) {
-      return NextResponse.json(
-        { message: 'User not found' },
-        { status: 404 }
-      );
-    }
+    if (name) user.name = name;
+    if (username) user.username = username;
+    if (bio !== undefined) user.bio = bio;
+    
+    await user.save();
+    
+    // Return user without sensitive fields
+    const updatedUser = user.toObject();
+    delete updatedUser.password;
+    delete updatedUser.__v;
 
     return NextResponse.json(
       { message: 'Profile updated successfully', user: updatedUser },
