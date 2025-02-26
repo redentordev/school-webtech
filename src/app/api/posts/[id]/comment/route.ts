@@ -97,8 +97,56 @@ export async function POST(
     };
     
     console.log('Adding new comment:', newComment);
+    
+    // Ensure all existing comments have the required text field
+    if (post.comments && Array.isArray(post.comments)) {
+      post.comments = post.comments.map((comment: any) => {
+        // If comment is a Mongoose document with toObject method
+        if (comment && typeof comment.toObject === 'function') {
+          const commentObj = comment.toObject();
+          return {
+            ...commentObj,
+            text: commentObj.text || commentObj.content || 'No text',
+          };
+        }
+        // If comment is a plain object
+        return {
+          ...comment,
+          text: comment.text || comment.content || 'No text',
+        };
+      });
+    }
+    
+    // Add the new comment
     post.comments.push(newComment);
-    await post.save();
+    
+    try {
+      await post.save();
+    } catch (saveError: any) {
+      console.error('Error saving post with new comment:', saveError);
+      
+      // If validation error, try to fix and save again
+      if (saveError.name === 'ValidationError') {
+        console.log('Attempting to fix validation errors and save again...');
+        
+        // More aggressive fix for comments
+        post.comments = post.comments.map((comment: any) => {
+          const commentObj = comment.toObject ? comment.toObject() : comment;
+          return {
+            _id: commentObj._id || new mongoose.Types.ObjectId(),
+            user: commentObj.user || userId,
+            text: commentObj.text || commentObj.content || 'No text',
+            createdAt: commentObj.createdAt || new Date()
+          };
+        });
+        
+        // Try saving again
+        await post.save();
+      } else {
+        // If not a validation error, rethrow
+        throw saveError;
+      }
+    }
 
     // Populate user info for the new comment with all required fields
     const populatedPost = await Post.findById(postId)

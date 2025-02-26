@@ -87,6 +87,15 @@ export function FeedPostModal({ isOpen, onClose, post, onPostUpdate }: FeedPostM
     }
   }, [post.likes, currentUserId]);
 
+  // Helper function to ensure all comments have required fields
+  const validateComments = (commentsArray: Comment[]) => {
+    return commentsArray.map(comment => ({
+      ...comment,
+      text: comment.text || comment.content || '', // Ensure text field exists
+      content: comment.content || comment.text || '', // Ensure content field exists
+    }));
+  };
+
   const handleLike = async () => {
     if (!currentUserId) return;
     
@@ -103,12 +112,13 @@ export function FeedPostModal({ isOpen, onClose, post, onPostUpdate }: FeedPostM
       setIsLiked(data.liked);
       setLikesCount(data.likesCount);
       
-      // Update the post with new likes
+      // Update the post with new likes and ensure comments are valid
       onPostUpdate({
         ...post,
         likes: data.liked 
           ? [...post.likes, currentUserId] 
-          : post.likes.filter(id => id !== currentUserId)
+          : post.likes.filter(id => id !== currentUserId),
+        comments: validateComments(post.comments)
       });
     } catch (error: any) {
       console.error('Error liking post:', error);
@@ -130,12 +140,12 @@ export function FeedPostModal({ isOpen, onClose, post, onPostUpdate }: FeedPostM
         body: JSON.stringify({ text: newComment }),
       });
 
+      const data = await response.json();
+      
       if (!response.ok) {
-        const data = await response.json();
         throw new Error(data.message || 'Failed to add comment');
       }
-
-      const data = await response.json();
+      
       console.log('Comment API response:', data);
       
       if (!data.comment) {
@@ -145,7 +155,8 @@ export function FeedPostModal({ isOpen, onClose, post, onPostUpdate }: FeedPostM
       // Make sure the comment has the required fields
       const newCommentData = {
         ...data.comment,
-        text: data.comment.text || data.comment.content || newComment, // Fallback chain
+        text: data.comment.text || data.comment.content || newComment, // Ensure text field exists
+        content: data.comment.content || data.comment.text || newComment, // Ensure content field exists for backward compatibility
       };
       
       console.log('New comment to add to state:', newCommentData);
@@ -155,9 +166,14 @@ export function FeedPostModal({ isOpen, onClose, post, onPostUpdate }: FeedPostM
       setNewComment('');
       
       // Update the post with the new comment
+      const updatedComments = [...post.comments, newCommentData];
+      
+      // Ensure all comments have the required text field
+      const validatedComments = validateComments(updatedComments);
+      
       onPostUpdate({
         ...post,
-        comments: [...post.comments, newCommentData]
+        comments: validatedComments
       });
     } catch (error: any) {
       setError(error.message || 'Something went wrong');
@@ -196,7 +212,11 @@ export function FeedPostModal({ isOpen, onClose, post, onPostUpdate }: FeedPostM
   useEffect(() => {
     if (post && Array.isArray(post.comments)) {
       console.log('Updating comments state from post:', post.comments);
-      setComments(post.comments);
+      
+      // Ensure all comments have the required text field
+      const validatedComments = validateComments(post.comments);
+      
+      setComments(validatedComments);
     }
   }, [post, post.comments]);
 

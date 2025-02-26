@@ -153,7 +153,7 @@ export function Feed() {
 
   // Handle post update (likes, comments)
   const handlePostUpdate = (updatedPost: RealPost) => {
-    // Update the post in the list
+    // Update the post in the list without creating duplicates
     const updatedPosts = allPosts.map(post => 
       post._id === updatedPost._id ? updatedPost : post
     );
@@ -161,9 +161,15 @@ export function Feed() {
     // Update the cache with the new data
     mutatePosts(prev => {
       if (!prev) return prev;
+      
+      // Make sure we're not duplicating posts in the cache
+      const updatedCachePosts = prev.posts.map(post => 
+        post._id === updatedPost._id ? updatedPost : post
+      );
+      
       return {
         ...prev,
-        posts: updatedPosts
+        posts: updatedCachePosts
       };
     }, false); // Don't revalidate immediately
   };

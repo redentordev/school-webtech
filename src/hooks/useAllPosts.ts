@@ -48,9 +48,19 @@ export function useAllPosts(isAuthenticated: boolean, options?: SWRConfiguration
       );
       
       if (page === 1) {
+        // Replace all posts when on first page
         setAllPosts(validPosts);
       } else {
-        setAllPosts(prev => [...prev, ...validPosts]);
+        // For subsequent pages, append only new posts that aren't already in the list
+        setAllPosts(prev => {
+          // Create a Set of existing post IDs for quick lookup
+          const existingPostIds = new Set(prev.map(post => post._id));
+          
+          // Only add posts that don't already exist in the list
+          const newPosts = validPosts.filter(post => !existingPostIds.has(post._id));
+          
+          return [...prev, ...newPosts];
+        });
       }
       
       // Check if there are more posts to load
