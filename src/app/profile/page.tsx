@@ -25,12 +25,16 @@ export default function ProfilePage() {
     }
   }, [status]);
 
+  // Only run once on component mount or when retryCount changes (manual retry)
   useEffect(() => {
+    // Don't try to load data if not authenticated yet
+    if (status !== 'authenticated') return;
+    
     const loadUserData = async () => {
       try {
         setLoading(true);
         
-        // Use our new utility function that tries multiple methods to get the profile
+        // Use our utility function that tries multiple methods to get the profile
         const userData = await fetchUserProfile();
         console.log('Profile data loaded successfully', userData);
         
@@ -56,28 +60,22 @@ export default function ProfilePage() {
       } catch (error: any) {
         console.error('Failed to load profile:', error);
         setError(error.message || 'Something went wrong');
-        
-        // If we haven't retried too many times, retry after a delay
-        if (retryCount < 2) {
-          const timer = setTimeout(() => {
-            setRetryCount(prev => prev + 1);
-            setError(''); // Clear error to trigger retry
-          }, 2000);
-          
-          return () => clearTimeout(timer);
-        }
       } finally {
         setLoading(false);
       }
     };
 
-    if (status === 'authenticated' && (error === '' || retryCount > 0)) {
-      loadUserData();
-    }
-  }, [status, error, retryCount, session]);
+    loadUserData();
+  }, [status, retryCount]); // Only depend on auth status and retry count, not session
 
   const handleProfileUpdate = (updatedUser: User) => {
     setUser(updatedUser);
+  };
+
+  // Manual retry function for the UI
+  const handleRetry = () => {
+    setError('');
+    setRetryCount(prev => prev + 1);
   };
 
   if (status === 'loading' || loading) {
@@ -98,14 +96,12 @@ export default function ProfilePage() {
         <div className="flex-1 flex items-center justify-center">
           <div className="text-center text-zinc-400">
             <p>{error || 'Failed to load profile'}</p>
-            {retryCount < 2 && (
-              <button 
-                onClick={() => setRetryCount(prev => prev + 1)}
-                className="mt-4 px-4 py-2 bg-blue-600 rounded hover:bg-blue-700 transition"
-              >
-                Retry
-              </button>
-            )}
+            <button 
+              onClick={handleRetry}
+              className="mt-4 px-4 py-2 bg-blue-600 rounded hover:bg-blue-700 transition"
+            >
+              Retry
+            </button>
           </div>
         </div>
       </div>

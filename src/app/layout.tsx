@@ -4,7 +4,6 @@ import { Inter } from 'next/font/google';
 import { AuthProvider } from '@/components/auth/AuthProvider';
 import { SWRProvider } from '@/providers/SWRProvider';
 import { S3ImageProvider } from '@/contexts/S3ImageContext';
-import ProfileSynchronizer from '@/components/ProfileSynchronizer';
 
 const inter = Inter({ subsets: ['latin'] });
 
@@ -24,7 +23,6 @@ export default function RootLayout({
         <AuthProvider>
           <SWRProvider>
             <S3ImageProvider>
-              <ProfileSynchronizer />
               <main>{children}</main>
             </S3ImageProvider>
           </SWRProvider>

@@ -221,7 +221,7 @@ export function Post({
           {/* Caption */}
           {caption && (
             <p className="text-sm">
-              <span className="font-medium">{username}</span>{' '}
+              <span className="font-medium">{username && username.length > 0 ? username : 'User'}</span>{' '}
               {caption}
             </p>
           )}

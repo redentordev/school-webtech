@@ -28,6 +28,7 @@ export const authOptions: AuthOptions = {
           username: profile.login || `github_${profile.id}`,
         };
       },
+      allowDangerousEmailAccountLinking: true,
     }),
     GoogleProvider({
       clientId: process.env.GOOGLE_CLIENT_ID as string,
@@ -42,6 +43,7 @@ export const authOptions: AuthOptions = {
           username: profile.email?.split('@')[0] || `google_${profile.sub}`,
         };
       },
+      allowDangerousEmailAccountLinking: true,
     }),
     CredentialsProvider({
       name: "credentials",
