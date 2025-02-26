@@ -197,22 +197,46 @@ export async function GET(req: NextRequest) {
 
     await dbConnect();
     
-    const user = await User.findById(session.user.id)
-      .select("_id name email image username bio")
-      .lean();
+    const userId = session.user.id;
+    const userEmail = session.user.email;
+    
+    // Use the same user lookup strategy as POST
+    // First try to find by email (which is more reliable than ID)
+    let user = null;
+    
+    if (userEmail) {
+      user = await User.findOne({ email: userEmail }).lean();
+      
+      if (user) {
+        // Make sure we're dealing with a single document, not an array
+        const userDoc = user as any;
+        if (userDoc._id && userDoc._id.toString() !== userId) {
+          console.log(`GET: Found user with email ${userEmail} but different ID. Original: ${userDoc._id}, Session: ${userId}`);
+        }
+      }
+    }
+    
+    // If no user found by email, try by ID as fallback
+    if (!user) {
+      user = await User.findById(userId).lean();
+    }
     
     if (!user) {
+      console.error("GET: User not found by either email or ID:", { userId, userEmail });
       return NextResponse.json(
         { success: false, message: "User not found" },
         { status: 404 }
       );
     }
 
+    console.log("GET: Found user profile:", userId);
+    
     // Use type assertion to handle Mongoose document type
     const userData = user as any;
 
     return NextResponse.json({
       success: true,
+      syncComplete: true, // Match POST response format
       user: {
         id: userData._id.toString(),
         name: userData.name || null,

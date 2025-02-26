@@ -29,8 +29,51 @@ export default function useProfileSync() {
   // Memoize syncProfile to avoid recreation on each render
   const syncProfile = useCallback(async () => {
     // Don't sync if we don't have a session or if sync is already complete
-    if (!session?.user || syncStatus.syncComplete) {
-      console.log("Skipping profile sync - already complete or no session");
+    if (!session?.user) {
+      console.log("Skipping profile sync - no session");
+      return;
+    }
+
+    // If sync is complete but we still need username, try a GET request instead of POST
+    if (syncStatus.syncComplete && !(session.user as any)?.username) {
+      try {
+        console.log("Trying GET request to fetch profile data...");
+        const getResponse = await fetch("/api/auth/sync-profile", {
+          method: "GET",
+          headers: {
+            "Content-Type": "application/json"
+          }
+        });
+
+        const getData = await getResponse.json();
+        
+        if (getResponse.ok && getData.success && getData.user?.username) {
+          console.log("Successfully retrieved profile with GET:", getData.user);
+          
+          // Update session with the retrieved user data
+          await updateSession({
+            ...session,
+            user: {
+              ...session.user,
+              ...getData.user
+            }
+          });
+          console.log("Session updated with GET profile data");
+          
+          return getData.user;
+        } else {
+          console.warn("GET request did not return a username, falling back to POST");
+          // Fall through to POST method below
+        }
+      } catch (error) {
+        console.error("Error fetching profile with GET:", error);
+        // Fall through to POST method below
+      }
+    }
+    
+    // Normal POST profile sync logic
+    if (syncStatus.syncComplete && (session.user as any)?.username) {
+      console.log("Skipping profile sync - already complete");
       return;
     }
 
@@ -41,7 +84,7 @@ export default function useProfileSync() {
         error: null 
       }));
       
-      console.log("Syncing user profile...");
+      console.log("Syncing user profile with POST...");
       const response = await fetch("/api/auth/sync-profile", {
         method: "POST",
         headers: {
@@ -111,6 +154,19 @@ export default function useProfileSync() {
     
     // Skip if sync is already complete
     if (syncStatus.syncComplete) {
+      // Extra check: If we marked sync as complete but still don't have a username
+      // (which could happen if session wasn't updated properly),
+      // force one more sync attempt
+      if (!(session.user as any)?.username) {
+        console.log("Sync was marked complete but username still missing, trying once more");
+        setSyncStatus(prev => ({
+          ...prev,
+          syncComplete: false,
+          retryCount: 0 // Reset retry count for fresh attempt
+        }));
+        return;
+      }
+      
       console.log("Profile sync already complete, skipping");
       return;
     }
