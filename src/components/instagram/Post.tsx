@@ -9,6 +9,7 @@ import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { FeedPostModal } from "./FeedPostModal";
 import { S3Image } from "@/components/S3Image";
+import { getDirectS3Url, getUserAvatarUrl } from '@/lib/image-utils';
 
 // Type for auto-generated posts
 type GeneratedPost = {
@@ -29,12 +30,25 @@ type RealPost = {
     name: string;
     username?: string;
     image?: string;
+    imageKey?: string;
   };
   caption?: string;
   imageUrl: string;
   imageKey: string;
   likes: string[];
-  comments: any[];
+  comments: {
+    _id: string;
+    user: {
+      _id: string;
+      name: string;
+      username?: string;
+      image?: string;
+      imageKey?: string;
+    } | string;
+    text: string;
+    content?: string;
+    createdAt: string;
+  }[];
   createdAt: string;
   updatedAt: string;
 };
@@ -124,14 +138,6 @@ export function Post({
     }
   };
 
-  // Generate direct S3 URL for an image
-  const getDirectS3Url = (imageKey: string) => {
-    const region = 'us-east-1';
-    const bucket = 'picwall-webtech'; 
-    const encodedKey = encodeURIComponent(imageKey).replace(/%2F/g, '/');
-    return `https://${bucket}.s3.${region}.amazonaws.com/${encodedKey}`;
-  };
-
   return (
     <>
       <div 
@@ -181,7 +187,11 @@ export function Post({
           {/* User info */}
           <div className="flex items-center gap-2">
             <Avatar className="w-8 h-8">
-              <AvatarImage src={userAvatar} />
+              {postData && postData.user.imageKey ? (
+                <AvatarImage src={getDirectS3Url(postData.user.imageKey)} alt={username} />
+              ) : (
+                <AvatarImage src={userAvatar} alt={username} />
+              )}
               <AvatarFallback>{username && username.length > 0 ? username[0].toUpperCase() : 'U'}</AvatarFallback>
             </Avatar>
             <div className="flex-1">
@@ -249,12 +259,17 @@ export function Post({
 
       {/* Post Modal */}
       {postData && (
-        <FeedPostModal
-          isOpen={isModalOpen}
-          onClose={() => setIsModalOpen(false)}
-          post={postData}
-          onPostUpdate={handlePostUpdate}
-        />
+        <>
+          {/* Debug console log just before opening modal */}
+          {console.log('Opening FeedPostModal with post:', postData)}
+          {console.log('Post has comments:', postData.comments)}
+          <FeedPostModal
+            isOpen={isModalOpen}
+            onClose={() => setIsModalOpen(false)}
+            post={postData}
+            onPostUpdate={handlePostUpdate}
+          />
+        </>
       )}
     </>
   );

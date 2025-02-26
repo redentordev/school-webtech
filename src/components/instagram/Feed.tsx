@@ -5,7 +5,8 @@ import { faker } from '@faker-js/faker';
 import { Post } from './Post';
 import { useSession } from 'next-auth/react';
 import { Loader2 } from 'lucide-react';
-import { useFeed, RealPost } from '@/hooks/useFeed';
+import { useFeed, RealPost, Comment } from '@/hooks/useFeed';
+import { useAllPosts } from '@/hooks/useAllPosts';
 import { FeedProvider } from '@/contexts/FeedContext';
 
 // Type for auto-generated posts
@@ -66,6 +67,24 @@ const formatTimeAgo = (dateString: string): string => {
   }
 };
 
+// Post type definition 
+interface Post {
+  _id: string;
+  user: {
+    _id: string;
+    name: string;
+    username?: string;
+    image?: string;
+    imageKey?: string;
+  };
+  imageUrl: string;
+  caption: string;
+  likes: string[];
+  comments: Comment[];
+  createdAt: string;
+  updatedAt: string;
+}
+
 export function Feed() {
   const { data: session, status } = useSession();
   const isAuthenticated = status === 'authenticated';
@@ -74,16 +93,16 @@ export function Feed() {
   const [generatedPosts, setGeneratedPosts] = useState<GeneratedPost[]>([]);
   const [generatedPage, setGeneratedPage] = useState(0);
   
-  // Use custom hook for real posts
+  // Use custom hook for all posts
   const { 
-    posts: realPosts, 
-    error: feedError, 
-    isLoading: isFeedLoading, 
-    loadMore: loadMoreRealPosts,
-    hasMore: hasMoreRealPosts,
-    refresh: refreshFeed,
-    mutate: mutateFeed
-  } = useFeed(isAuthenticated);
+    posts: allPosts, 
+    error: postsError, 
+    isLoading: isPostsLoading, 
+    loadMore: loadMorePosts,
+    hasMore: hasMorePosts,
+    refresh: refreshPosts,
+    mutate: mutatePosts
+  } = useAllPosts(isAuthenticated);
   
   // Shared state
   const [loading, setLoading] = useState(false);
@@ -104,8 +123,8 @@ export function Feed() {
       if (loading) return;
 
       if (isAuthenticated) {
-        if (hasMoreRealPosts) {
-          loadMoreRealPosts();
+        if (hasMorePosts) {
+          loadMorePosts();
         }
       } else {
         setLoading(true);
@@ -130,17 +149,17 @@ export function Feed() {
     }
 
     return () => observer.disconnect();
-  }, [loading, isAuthenticated, generatedPage, hasMoreRealPosts, loadMoreRealPosts]);
+  }, [loading, isAuthenticated, generatedPage, hasMorePosts, loadMorePosts]);
 
   // Handle post update (likes, comments)
   const handlePostUpdate = (updatedPost: RealPost) => {
     // Update the post in the list
-    const updatedPosts = realPosts.map(post => 
+    const updatedPosts = allPosts.map(post => 
       post._id === updatedPost._id ? updatedPost : post
     );
     
     // Update the cache with the new data
-    mutateFeed(prev => {
+    mutatePosts(prev => {
       if (!prev) return prev;
       return {
         ...prev,
@@ -149,45 +168,78 @@ export function Feed() {
     }, false); // Don't revalidate immediately
   };
 
+  // Update posts when data changes
+  useEffect(() => {
+    if (isAuthenticated && allPosts.length === 0 && !isPostsLoading && !postsError) {
+      // This is just to ensure we don't have an empty feed when we have posts
+      // but they haven't been set in the component state yet
+      if (mutatePosts) {
+        mutatePosts();
+      }
+    }
+  }, [isAuthenticated, allPosts.length, isPostsLoading, postsError, mutatePosts]);
+
+  // Add the getDirectS3Url function local to the component
+  const getDirectS3Url = (imageKey: string) => {
+    if (!imageKey) return '';
+    return `${process.env.NEXT_PUBLIC_API_URL || ''}/api/images/${encodeURIComponent(imageKey)}`;
+  };
+
   // Render posts based on authentication status
   const renderPosts = () => {
     if (isAuthenticated) {
-      if (feedError) {
+      if (postsError) {
         return (
           <div className="text-center py-10 text-red-500">
             Error loading posts. Please try again.
             <button 
-              onClick={refreshFeed}
-              className="block mx-auto mt-4 px-4 py-2 bg-zinc-800 rounded-md hover:bg-zinc-700 transition"
+              onClick={refreshPosts}
+              className="block mx-auto mt-4 px-4 py-2 bg-zinc-800 text-white rounded-md hover:bg-zinc-700"
             >
               Retry
             </button>
           </div>
         );
       }
-
-      if (realPosts.length === 0 && !isFeedLoading) {
+      
+      if (allPosts.length === 0 && !loading) {
         return (
           <div className="text-center py-10 text-zinc-500">
-            No posts found. Follow users to see their posts in your feed.
+            No posts found. Be the first to create a post!
           </div>
         );
       }
       
-      return realPosts.map((post) => (
-        <Post
-          key={post._id}
-          username={post.user.username || post.user.name}
-          userAvatar={post.user.image || `https://picsum.photos/seed/avatar${post._id}/150/150`}
-          timeAgo={formatTimeAgo(post.createdAt)}
-          image={post.imageUrl}
-          likes={post.likes.length}
-          caption={post.caption || ''}
-          isAutoGenerated={false}
-          postData={post}
-          onPostUpdate={handlePostUpdate}
-        />
-      ));
+      return allPosts.map((post) => {
+        // Ensure user data has fallbacks for missing properties
+        const user = post.user || {};
+        const username = user.username || user.name || 'User';
+        
+        // Helper function to get direct S3 URL - defined inline to avoid import issues
+        const getS3Url = (key: string) => {
+          return `${process.env.NEXT_PUBLIC_API_URL || ''}/api/images/${encodeURIComponent(key)}`;
+        };
+        
+        // Prioritize imageKey over image
+        const userAvatar = user.imageKey 
+          ? getS3Url(user.imageKey) 
+          : (user.image || `https://picsum.photos/seed/avatar${post._id}/150/150`);
+        
+        return (
+          <Post
+            key={post._id}
+            username={username}
+            userAvatar={userAvatar}
+            timeAgo={formatTimeAgo(post.createdAt)}
+            image={post.imageUrl}
+            likes={post.likes.length}
+            caption={post.caption || ''}
+            isAutoGenerated={false}
+            postData={post}
+            onPostUpdate={handlePostUpdate}
+          />
+        );
+      });
     } else {
       return generatedPosts.map((post, index) => (
         <Post
@@ -199,10 +251,10 @@ export function Feed() {
     }
   };
 
-  // Pull to refresh functionality (for future implementation)
+  // Pull to refresh functionality
   const handleRefresh = () => {
     if (isAuthenticated) {
-      refreshFeed();
+      refreshPosts();
     } else {
       const freshPosts = generatePosts(0);
       setGeneratedPosts(freshPosts);
@@ -211,10 +263,10 @@ export function Feed() {
   };
 
   return (
-    <FeedProvider refreshFeed={refreshFeed} mutateFeed={mutateFeed}>
+    <FeedProvider refreshFeed={refreshPosts} mutateFeed={mutatePosts}>
       <div className="flex-1 overflow-auto px-4">
         <div className="max-w-[500px] mx-auto py-8">
-          {status === 'loading' || (isAuthenticated && isFeedLoading && realPosts.length === 0) ? (
+          {status === 'loading' || (isAuthenticated && isPostsLoading && allPosts.length === 0) ? (
             <div className="flex justify-center py-10">
               <Loader2 className="h-8 w-8 animate-spin text-zinc-500" />
             </div>
@@ -227,14 +279,14 @@ export function Feed() {
                 ref={loadMoreRef}
                 className="h-20 flex items-center justify-center text-zinc-500"
               >
-                {loading || (isAuthenticated && isFeedLoading && realPosts.length > 0) ? (
+                {loading || (isAuthenticated && isPostsLoading && allPosts.length > 0) ? (
                   <div className="flex items-center">
                     <Loader2 className="h-5 w-5 animate-spin mr-2" />
                     <span>Loading more posts...</span>
                   </div>
                 ) : (
                   <span>
-                    {isAuthenticated && !hasMoreRealPosts && realPosts.length > 0
+                    {isAuthenticated && !hasMorePosts && allPosts.length > 0
                       ? 'No more posts' 
                       : 'Scroll for more'}
                   </span>

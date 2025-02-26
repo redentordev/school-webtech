@@ -16,6 +16,7 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { User } from '@/types/user';
 import { UserIcon } from 'lucide-react';
 import Image from 'next/image';
+import { getDirectS3Url } from '@/lib/image-utils';
 
 interface EditProfileModalProps {
   isOpen: boolean;
@@ -35,14 +36,6 @@ export function EditProfileModal({ isOpen, onClose, user, onProfileUpdate }: Edi
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // Generate direct S3 URL for an image
-  const getDirectS3Url = (imageKey: string) => {
-    const region = 'us-east-1';
-    const bucket = 'picwall-webtech'; 
-    const encodedKey = encodeURIComponent(imageKey).replace(/%2F/g, '/');
-    return `https://${bucket}.s3.${region}.amazonaws.com/${encodedKey}`;
-  };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
@@ -91,8 +84,8 @@ export function EditProfileModal({ isOpen, onClose, user, onProfileUpdate }: Edi
       }
       
       // Update the user profile
-      const response = await fetch(`/api/users/${user._id}`, {
-        method: 'PATCH',
+      const response = await fetch(`/api/user/profile`, {
+        method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
         },
@@ -106,7 +99,9 @@ export function EditProfileModal({ isOpen, onClose, user, onProfileUpdate }: Edi
         throw new Error('Failed to update profile');
       }
       
-      const updatedUser = await response.json();
+      const data = await response.json();
+      // The updated user is in the 'user' property of the response
+      const updatedUser = data.user;
       onProfileUpdate(updatedUser);
       onClose();
     } catch (error) {

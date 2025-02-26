@@ -1,14 +1,14 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useSession } from 'next-auth/react';
 import useSWR, { KeyedMutator } from 'swr';
 import { Button } from '@/components/ui/button';
 import { Loader2 } from 'lucide-react';
 import { Post } from '@/types/post';
 import { PostModal } from './PostModal';
-import { S3Image } from '@/components/S3Image';
 import Image from 'next/image';
+import { getDirectS3Url, getUserAvatarUrl } from '@/lib/image-utils';
 
 interface ProfilePostsProps {
   userId: string;
@@ -44,16 +44,10 @@ export function ProfilePosts({ userId }: ProfilePostsProps) {
     }
   );
 
-  // Generate direct S3 URL for an image
-  const getDirectS3Url = (imageKey: string) => {
-    const region = 'us-east-1';
-    const bucket = 'picwall-webtech'; 
-    const encodedKey = encodeURIComponent(imageKey).replace(/%2F/g, '/');
-    return `https://${bucket}.s3.${region}.amazonaws.com/${encodedKey}`;
-  };
-
   // Cache image URLs for better performance
   const getImageUrl = (imageKey: string) => {
+    if (!imageKey) return '';
+    
     if (imageUrlCache[imageKey]) {
       return imageUrlCache[imageKey];
     }
@@ -70,28 +64,30 @@ export function ProfilePosts({ userId }: ProfilePostsProps) {
   };
 
   // Update allPosts when data changes
-  if (data && !isLoading) {
-    if (page === 1 && allPosts.length === 0) {
-      setAllPosts(data.posts);
-      
-      // Prefetch image URLs for these posts
-      data.posts.forEach(post => {
-        if (post.imageKey) {
-          getImageUrl(post.imageKey);
-        }
-      });
-    } else if (page > 1 && allPosts.length < page * 12) {
-      // Only append new posts if they haven't been added yet
-      setAllPosts(prev => [...prev, ...data.posts]);
-      
-      // Prefetch image URLs for the new posts
-      data.posts.forEach(post => {
-        if (post.imageKey) {
-          getImageUrl(post.imageKey);
-        }
-      });
+  useEffect(() => {
+    if (data && !isLoading) {
+      if (page === 1 && allPosts.length === 0) {
+        setAllPosts(data.posts);
+        
+        // Prefetch image URLs for these posts
+        data.posts.forEach(post => {
+          if (post.imageKey) {
+            getImageUrl(post.imageKey);
+          }
+        });
+      } else if (page > 1 && allPosts.length < page * 12) {
+        // Only append new posts if they haven't been added yet
+        setAllPosts(prev => [...prev, ...data.posts]);
+        
+        // Prefetch image URLs for the new posts
+        data.posts.forEach(post => {
+          if (post.imageKey) {
+            getImageUrl(post.imageKey);
+          }
+        });
+      }
     }
-  }
+  }, [data, isLoading, page, allPosts.length]);
 
   const hasMore = data ? data.pagination.page < data.pagination.pages : false;
 

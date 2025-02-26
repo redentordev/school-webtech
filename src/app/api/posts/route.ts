@@ -4,12 +4,14 @@ import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import dbConnect from '@/lib/dbConnect';
 import Post from '@/models/Post';
 import { getPublicURL } from '@/lib/s3';
+import mongoose from 'mongoose';
 
 // Define a type that includes possible user ID fields
 type UserWithId = {
   id?: string;
   _id?: string;
   sub?: string;
+  email?: string;
   [key: string]: any;
 };
 
@@ -44,24 +46,41 @@ export async function POST(request: Request) {
 
     // Use type assertion with a more specific type
     const user = session.user as UserWithId;
-    const userId = user.id || user._id || user.sub;
     
-    if (!userId) {
-      console.error('User ID not found in session:', session.user);
+    // Try to find the user in the database first to ensure we have the correct MongoDB ID
+    const dbUser = await mongoose.model('User').findOne({ 
+      $or: [
+        { _id: user.id },
+        { email: user.email }
+      ]
+    });
+    
+    if (!dbUser) {
+      console.error('User not found in database:', user);
       return NextResponse.json(
-        { message: 'User ID not found in session' },
-        { status: 500 }
+        { message: 'User not found in database' },
+        { status: 404 }
       );
     }
+    
+    console.log('Found user in database:', {
+      dbUserId: dbUser._id.toString(),
+      sessionUserId: user.id,
+      email: dbUser.email
+    });
 
+    // Use the database user ID for consistency
     const post = await Post.create({
-      user: userId,
+      user: dbUser._id,
       caption,
       imageUrl,
       imageKey,
       likes: [],
       comments: []
     });
+
+    // Populate the user field for the response
+    await post.populate('user', 'name username image');
 
     return NextResponse.json(
       { message: 'Post created successfully', post },
@@ -101,10 +120,10 @@ export async function GET(request: Request) {
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
-      .populate('user', 'name username image')
+      .populate('user', 'name username image imageKey')
       .populate({
         path: 'comments.user',
-        select: 'name username image'
+        select: 'name username image imageKey'
       });
 
     const total = await Post.countDocuments();

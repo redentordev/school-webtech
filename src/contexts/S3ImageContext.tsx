@@ -2,8 +2,12 @@
 
 import { createContext, useContext, ReactNode } from 'react';
 
-// Create an empty context since we no longer need to manage presigned URLs
-const S3ImageContext = createContext<{}>({});
+// Create a context with the invalidateImages function for backward compatibility
+const S3ImageContext = createContext<{
+  invalidateImages: () => void;
+}>({
+  invalidateImages: () => {} // No-op function
+});
 
 interface S3ImageProviderProps {
   children: ReactNode;
@@ -11,9 +15,13 @@ interface S3ImageProviderProps {
 
 export function S3ImageProvider({ children }: S3ImageProviderProps) {
   // We're keeping the provider for backward compatibility
-  // but it no longer needs to do anything special
+  // but it now includes the invalidateImages function as a no-op
   return (
-    <S3ImageContext.Provider value={{}}>
+    <S3ImageContext.Provider value={{ 
+      invalidateImages: () => {
+        console.log('S3ImageContext.invalidateImages called (no-op)');
+      } 
+    }}>
       {children}
     </S3ImageContext.Provider>
   );

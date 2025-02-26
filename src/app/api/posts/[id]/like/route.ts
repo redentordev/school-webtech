@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import dbConnect from '@/lib/dbConnect';
 import Post from '@/models/Post';
+import mongoose from 'mongoose';
 
 export async function POST(
   request: Request,
@@ -30,6 +31,28 @@ export async function POST(
 
     await dbConnect();
 
+    // Find the user in the database to ensure we have the correct MongoDB ID
+    const dbUser = await mongoose.model('User').findOne({ 
+      $or: [
+        { _id: userId },
+        { email: session.user.email }
+      ]
+    });
+    
+    if (!dbUser) {
+      console.error('User not found in database:', session.user);
+      return NextResponse.json(
+        { message: 'User not found in database' },
+        { status: 404 }
+      );
+    }
+
+    console.log('Found user in database:', {
+      dbUserId: dbUser._id.toString(),
+      sessionUserId: userId,
+      email: dbUser.email
+    });
+
     // Find the post
     const post = await Post.findById(postId);
     
@@ -40,15 +63,20 @@ export async function POST(
       );
     }
 
-    // Check if user already liked the post
-    const alreadyLiked = post.likes.includes(userId);
+    // Check if user already liked the post - use the database user ID
+    const dbUserIdStr = dbUser._id.toString();
+    const alreadyLiked = post.likes.some((id: mongoose.Types.ObjectId) => 
+      id.toString() === dbUserIdStr
+    );
     
     if (alreadyLiked) {
       // Unlike the post
-      post.likes = post.likes.filter((id: string) => id.toString() !== userId);
+      post.likes = post.likes.filter((id: mongoose.Types.ObjectId) => 
+        id.toString() !== dbUserIdStr
+      );
     } else {
       // Like the post
-      post.likes.push(userId);
+      post.likes.push(dbUser._id);
     }
     
     await post.save();

@@ -1,43 +1,9 @@
 import useSWR, { SWRConfiguration } from 'swr';
 import { useState, useEffect } from 'react';
-
-// Comment type definition
-export type Comment = {
-  _id: string;
-  user: {
-    _id: string;
-    name: string;
-    username?: string;
-    image?: string;
-    imageKey?: string;
-  } | string;
-  text: string;
-  content?: string;
-  createdAt: string;
-};
-
-// Type for real posts from the database
-export type RealPost = {
-  _id: string;
-  user: {
-    _id: string;
-    name: string;
-    username?: string;
-    image?: string;
-    imageKey?: string;
-  };
-  caption?: string;
-  imageUrl: string;
-  imageKey: string;
-  likes: string[];
-  comments: Comment[]; // Use the proper Comment type
-  createdAt: string;
-  updatedAt: string;
-  isFollowed?: boolean;
-};
+import { Comment, RealPost } from './useFeed';
 
 // Type for API response
-export type FeedResponse = {
+export type AllPostsResponse = {
   posts: RealPost[];
   pagination: {
     total: number;
@@ -45,7 +11,6 @@ export type FeedResponse = {
     limit: number;
     pages: number;
   };
-  isAuthenticated: boolean;
 };
 
 // SWR fetcher function
@@ -57,14 +22,14 @@ const fetcher = async (url: string) => {
   return res.json();
 };
 
-export function useFeed(isAuthenticated: boolean, options?: SWRConfiguration) {
+export function useAllPosts(isAuthenticated: boolean, options?: SWRConfiguration) {
   const [page, setPage] = useState(1);
   const [allPosts, setAllPosts] = useState<RealPost[]>([]);
   const [hasMore, setHasMore] = useState(true);
 
-  // Use SWR for fetching real posts
-  const { data, error, isLoading, mutate } = useSWR<FeedResponse>(
-    isAuthenticated ? `/api/feed?page=${page}&limit=5&populate=comments` : null,
+  // Use SWR for fetching all posts
+  const { data, error, isLoading, mutate } = useSWR<AllPostsResponse>(
+    isAuthenticated ? `/api/posts?page=${page}&limit=5` : null,
     fetcher,
     {
       revalidateOnFocus: true,
@@ -77,10 +42,15 @@ export function useFeed(isAuthenticated: boolean, options?: SWRConfiguration) {
   // Update allPosts when data changes
   useEffect(() => {
     if (data && data.posts) {
+      // Filter out posts with invalid user data
+      const validPosts = data.posts.filter(post => 
+        post.user && typeof post.user === 'object' && post.user._id
+      );
+      
       if (page === 1) {
-        setAllPosts(data.posts);
+        setAllPosts(validPosts);
       } else {
-        setAllPosts(prev => [...prev, ...data.posts]);
+        setAllPosts(prev => [...prev, ...validPosts]);
       }
       
       // Check if there are more posts to load

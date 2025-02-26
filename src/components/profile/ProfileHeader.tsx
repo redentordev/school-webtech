@@ -7,6 +7,7 @@ import { EditProfileModal } from './EditProfileModal';
 import { User } from '@/types/user';
 import { SettingsIcon } from 'lucide-react';
 import Image from 'next/image';
+import { getDirectS3Url } from '@/lib/image-utils';
 
 interface ProfileHeaderProps {
   user: User;
@@ -39,6 +40,15 @@ export function ProfileHeader({ user, postCount, onProfileUpdate }: ProfileHeade
                 className="object-cover"
               />
             </div>
+          ) : user.image ? (
+            <div className="w-24 h-24 md:w-36 md:h-36 rounded-full overflow-hidden relative">
+              <Image 
+                src={user.image}
+                alt={user.name || 'User'}
+                fill
+                className="object-cover"
+              />
+            </div>
           ) : (
             <Avatar className="w-24 h-24 md:w-36 md:h-36">
               <AvatarFallback className="text-2xl bg-zinc-800">
@@ -57,7 +67,7 @@ export function ProfileHeader({ user, postCount, onProfileUpdate }: ProfileHeade
             <Button 
               variant="outline" 
               size="sm"
-              className="border-zinc-700 text-black hover:bg-zinc-800"
+              className="border-zinc-700 text-white hover:bg-zinc-800"
               onClick={() => setIsEditModalOpen(true)}
             >
               Edit Profile

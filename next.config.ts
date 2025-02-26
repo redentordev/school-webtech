@@ -6,6 +6,8 @@ const nextConfig: NextConfig = {
     domains: [
       'picsum.photos',
       'picwall-webtech.s3.us-east-1.amazonaws.com',
+      "avatars.githubusercontent.com",
+      "lh3.googleusercontent.com"
     ],
     formats: ['image/webp'],
     remotePatterns: [

@@ -4,7 +4,9 @@ import { useState, useEffect, useRef } from 'react';
 import { 
   Dialog, 
   DialogContent,
-  DialogFooter
+  DialogFooter,
+  DialogHeader,
+  DialogTitle
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -13,6 +15,7 @@ import { FaRegHeart, FaHeart, FaRegComment, FaTrash, FaEdit } from 'react-icons/
 import { Loader2 } from 'lucide-react';
 import { useSession } from 'next-auth/react';
 import { formatDistanceToNow } from 'date-fns';
+import { getDirectS3Url, getUserAvatarUrl } from '@/lib/image-utils';
 
 interface Comment {
   _id: string;
@@ -21,8 +24,10 @@ interface Comment {
     name: string;
     username?: string;
     image?: string;
-  };
+    imageKey?: string;
+  } | string;
   text: string;
+  content?: string;
   createdAt: string;
 }
 
@@ -31,6 +36,7 @@ interface PostUser {
   name: string;
   username?: string;
   image?: string;
+  imageKey?: string;
 }
 
 interface Post {
@@ -62,8 +68,17 @@ export function FeedPostModal({ isOpen, onClose, post, onPostUpdate }: FeedPostM
   const [comments, setComments] = useState<Comment[]>(post.comments);
   const commentInputRef = useRef<HTMLTextAreaElement>(null);
   
+  // Ensure user data has fallbacks for missing properties
+  const safeUser = {
+    _id: post.user?._id || '',
+    name: post.user?.name || 'User',
+    username: post.user?.username || post.user?.name || 'User',
+    image: post.user?.image || '',
+    imageKey: post.user?.imageKey || ''
+  };
+
   const currentUserId = session?.user?.id;
-  const isOwnPost = currentUserId && post.user._id === currentUserId;
+  const isOwnPost = currentUserId && safeUser._id === currentUserId;
 
   // Check if the post is liked by the current user
   useEffect(() => {
@@ -121,18 +136,32 @@ export function FeedPostModal({ isOpen, onClose, post, onPostUpdate }: FeedPostM
       }
 
       const data = await response.json();
+      console.log('Comment API response:', data);
+      
+      if (!data.comment) {
+        throw new Error('No comment data returned from API');
+      }
+      
+      // Make sure the comment has the required fields
+      const newCommentData = {
+        ...data.comment,
+        text: data.comment.text || data.comment.content || newComment, // Fallback chain
+      };
+      
+      console.log('New comment to add to state:', newCommentData);
       
       // Add the new comment to the list
-      setComments([...comments, data.comment]);
+      setComments([...comments, newCommentData]);
       setNewComment('');
       
       // Update the post with the new comment
       onPostUpdate({
         ...post,
-        comments: [...post.comments, data.comment]
+        comments: [...post.comments, newCommentData]
       });
     } catch (error: any) {
       setError(error.message || 'Something went wrong');
+      console.error('Error adding comment:', error);
     } finally {
       setIsSubmitting(false);
     }
@@ -152,15 +181,37 @@ export function FeedPostModal({ isOpen, onClose, post, onPostUpdate }: FeedPostM
     }
   };
 
+  // Log comments when component mounts and when they change
+  useEffect(() => {
+    console.log('FeedPostModal comments changed:', comments);
+  }, [comments]);
+
+  // Log initial post prop to check if comments are being passed correctly
+  useEffect(() => {
+    console.log('FeedPostModal post prop:', post);
+    console.log('FeedPostModal post.comments:', post.comments);
+  }, [post]);
+
+  // Reset comments when post changes
+  useEffect(() => {
+    if (post && Array.isArray(post.comments)) {
+      console.log('Updating comments state from post:', post.comments);
+      setComments(post.comments);
+    }
+  }, [post, post.comments]);
+
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="bg-zinc-900 text-white border-zinc-800 p-0 max-w-4xl h-[80vh] max-h-[800px] overflow-hidden">
+      <DialogContent className="bg-zinc-900 text-white border-zinc-800 p-0 max-w-4xl h-[90vh] max-h-[90vh] overflow-hidden">
+        <DialogHeader className="sr-only">
+          <DialogTitle>Post by {safeUser.username}</DialogTitle>
+        </DialogHeader>
         <div className="flex flex-col md:flex-row h-full">
           {/* Image */}
           <div className="md:w-3/5 h-[300px] md:h-full relative bg-zinc-950 flex items-center justify-center border-r border-zinc-800">
             <div className="w-full h-full relative">
               <img
-                src={post.imageUrl}
+                src={post.imageKey ? getDirectS3Url(post.imageKey) : post.imageUrl}
                 alt={post.caption || 'Post'}
                 className="object-contain w-full h-full"
               />
@@ -168,17 +219,22 @@ export function FeedPostModal({ isOpen, onClose, post, onPostUpdate }: FeedPostM
           </div>
 
           {/* Content */}
-          <div className="md:w-2/5 flex flex-col h-full">
+          <div className="md:w-2/5 flex flex-col h-full max-h-full overflow-hidden">
             {/* Header */}
-            <div className="flex items-center gap-3 p-4 border-b border-zinc-800">
+            <div className="flex items-center gap-3 p-4 border-b border-zinc-800 flex-shrink-0">
               <Avatar className="w-8 h-8">
-                <AvatarImage src={post.user.image || ''} alt={post.user.name} />
-                <AvatarFallback className="bg-zinc-800">
-                  {post.user.name ? post.user.name.charAt(0).toUpperCase() : 'U'}
-                </AvatarFallback>
+                {safeUser.imageKey ? (
+                  <AvatarImage src={getDirectS3Url(safeUser.imageKey)} alt={safeUser.name} />
+                ) : safeUser.image ? (
+                  <AvatarImage src={safeUser.image} alt={safeUser.name} />
+                ) : (
+                  <AvatarFallback className="bg-zinc-800">
+                    {safeUser.name.charAt(0).toUpperCase()}
+                  </AvatarFallback>
+                )}
               </Avatar>
               <div className="flex-1">
-                <p className="font-medium text-sm">{post.user.username || post.user.name}</p>
+                <p className="font-medium text-sm">{safeUser.username}</p>
               </div>
               
               {/* Only show edit/delete buttons if it's the user's own post */}
@@ -205,19 +261,24 @@ export function FeedPostModal({ isOpen, onClose, post, onPostUpdate }: FeedPostM
             </div>
 
             {/* Caption and Comments */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+            <div className="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-thin scrollbar-thumb-zinc-700 scrollbar-track-transparent">
               {/* Caption */}
               {post.caption && (
                 <div className="flex gap-3">
                   <Avatar className="w-8 h-8">
-                    <AvatarImage src={post.user.image || ''} alt={post.user.name} />
-                    <AvatarFallback className="bg-zinc-800">
-                      {post.user.name ? post.user.name.charAt(0).toUpperCase() : 'U'}
-                    </AvatarFallback>
+                    {safeUser.imageKey ? (
+                      <AvatarImage src={getDirectS3Url(safeUser.imageKey)} alt={safeUser.name} />
+                    ) : safeUser.image ? (
+                      <AvatarImage src={safeUser.image} alt={safeUser.name} />
+                    ) : (
+                      <AvatarFallback className="bg-zinc-800">
+                        {safeUser.name.charAt(0).toUpperCase()}
+                      </AvatarFallback>
+                    )}
                   </Avatar>
                   <div>
                     <p className="text-sm">
-                      <span className="font-medium">{post.user.username || post.user.name}</span>{' '}
+                      <span className="font-medium">{safeUser.username}</span>{' '}
                       {post.caption}
                     </p>
                     <p className="text-xs text-zinc-500 mt-1">
@@ -229,38 +290,59 @@ export function FeedPostModal({ isOpen, onClose, post, onPostUpdate }: FeedPostM
 
               {/* Comments */}
               <div className="space-y-4 mt-6">
-                <h3 className="text-sm font-medium text-zinc-400">Comments</h3>
+                <h3 className="text-sm font-medium text-zinc-400" id="comments-heading">Comments</h3>
+                
+                {/* Debug logging outside of JSX */}
                 
                 {comments.length === 0 ? (
-                  <p className="text-sm text-zinc-500">No comments yet. Be the first to comment!</p>
+                  <p className="text-sm text-zinc-500" aria-labelledby="comments-heading">No comments yet. Be the first to comment!</p>
                 ) : (
-                  <div className="space-y-4">
-                    {comments.map((comment) => (
-                      <div key={comment._id} className="flex gap-3">
-                        <Avatar className="w-8 h-8">
-                          <AvatarImage src={comment.user.image || ''} alt={comment.user.name} />
-                          <AvatarFallback className="bg-zinc-800">
-                            {comment.user.name ? comment.user.name.charAt(0).toUpperCase() : 'U'}
-                          </AvatarFallback>
-                        </Avatar>
-                        <div>
-                          <p className="text-sm">
-                            <span className="font-medium">{comment.user.username || comment.user.name}</span>{' '}
-                            {comment.text}
-                          </p>
-                          <p className="text-xs text-zinc-500 mt-1">
-                            {formatDate(comment.createdAt)}
-                          </p>
+                  <div className="overflow-y-auto scrollbar-thin scrollbar-thumb-zinc-700 scrollbar-track-transparent max-h-[280px] space-y-4" role="list" aria-labelledby="comments-heading">
+                    {comments.map((comment) => {
+                      // Get the comment user safely - handle both string IDs and object references
+                      const commentUser = typeof comment.user === 'string'
+                        ? { _id: comment.user, name: 'User', image: '', imageKey: '', username: '' }
+                        : comment.user || {};
+                      
+                      // Get user properties safely with fallbacks
+                      const commentUserId = typeof commentUser === 'string' ? commentUser : commentUser._id || '';
+                      const commentUserName = typeof commentUser === 'string' ? 'User' : commentUser.name || 'User';
+                      const commentUserImage = typeof commentUser === 'string' ? '' : commentUser.image || '';
+                      const commentUserImageKey = typeof commentUser === 'string' ? '' : commentUser.imageKey || '';
+                      const commentUsername = typeof commentUser === 'string' ? 'User' : commentUser.username || commentUser.name || 'User';
+                      
+                      return (
+                        <div key={comment._id} className="flex gap-3" role="listitem">
+                          <Avatar className="w-8 h-8">
+                            {commentUserImageKey ? (
+                              <AvatarImage src={getDirectS3Url(commentUserImageKey)} alt={commentUserName} />
+                            ) : commentUserImage ? (
+                              <AvatarImage src={commentUserImage} alt={commentUserName} />
+                            ) : (
+                              <AvatarFallback className="bg-zinc-800">
+                                {typeof commentUserName === 'string' ? commentUserName.charAt(0).toUpperCase() : 'U'}
+                              </AvatarFallback>
+                            )}
+                          </Avatar>
+                          <div>
+                            <p className="text-sm">
+                              <span className="font-medium">{commentUsername}</span>{' '}
+                              {comment.text || comment.content || ''}
+                            </p>
+                            <p className="text-xs text-zinc-500 mt-1">
+                              {formatDate(comment.createdAt)}
+                            </p>
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>
             </div>
 
             {/* Actions */}
-            <div className="border-t border-zinc-800">
+            <div className="border-t border-zinc-800 flex-shrink-0 bg-zinc-900 sticky bottom-0">
               <div className="flex items-center p-4">
                 <Button
                   variant="ghost"
