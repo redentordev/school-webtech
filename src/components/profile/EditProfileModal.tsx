@@ -70,9 +70,14 @@ export function EditProfileModal({ isOpen, onClose, user, onProfileUpdate }: Edi
         uploadData.append('file', imageFile);
         
         // Upload the image to S3 via your API
-        const uploadResponse = await fetch('/api/upload', {
+        const uploadResponse = await fetch('/api/user/profile/image', {
           method: 'POST',
-          body: uploadData,
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            fileType: imageFile.type
+          }),
         });
         
         if (!uploadResponse.ok) {
@@ -80,7 +85,39 @@ export function EditProfileModal({ isOpen, onClose, user, onProfileUpdate }: Edi
         }
         
         const uploadResult = await uploadResponse.json();
-        updatedImageKey = uploadResult.key;
+        
+        // Now we have a presigned URL, upload the actual file to S3
+        const { uploadURL, key } = uploadResult;
+        
+        const s3UploadResponse = await fetch(uploadURL, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': imageFile.type
+          },
+          body: imageFile
+        });
+        
+        if (!s3UploadResponse.ok) {
+          throw new Error('Failed to upload image to storage');
+        }
+        
+        // Update the image key
+        updatedImageKey = key;
+        
+        // Update the image key in the database
+        const updateImageKeyResponse = await fetch('/api/user/profile/image', {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            imageKey: key,
+          }),
+        });
+        
+        if (!updateImageKeyResponse.ok) {
+          throw new Error('Failed to update profile image');
+        }
       }
       
       // Update the user profile
