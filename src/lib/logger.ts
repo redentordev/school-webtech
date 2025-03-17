@@ -9,7 +9,7 @@ import { AppError, ErrorSeverity, ErrorSource } from './error-utils';
 const LOG_CONFIG = {
   ALL: true,
   ERRORS: true,
-  WARNINS: true,
+  WARNINGS: true,
   INFO: true,
   DEBUG: true,
   PERFORMANCE: true,
