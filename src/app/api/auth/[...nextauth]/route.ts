@@ -9,6 +9,7 @@ import clientPromise from "@/lib/mongodb";
 import dbConnect from "@/lib/dbConnect";
 import User from "@/models/User";
 import { syncUserProfile } from "@/lib/auth-utils";
+import { logError, ErrorSeverity, ErrorSource, handleAuthError, handleMongoDBError } from "@/lib/error-utils";
 
 export const authOptions: AuthOptions = {
   adapter: MongoDBAdapter(clientPromise, {
@@ -53,27 +54,76 @@ export const authOptions: AuthOptions = {
       },
       async authorize(credentials) {
         if (!credentials?.email || !credentials?.password) {
+          logError({
+            message: "Missing email or password",
+            source: ErrorSource.AUTH,
+            severity: ErrorSeverity.WARNING,
+            code: "AUTH_MISSING_CREDENTIALS",
+            timestamp: new Date().toISOString(),
+          });
           throw new Error("Invalid credentials");
         }
 
-        await dbConnect();
-
-        const user = await User.findOne({ email: credentials.email });
-
-        if (!user || !user?.password) {
-          throw new Error("Invalid credentials");
+        try {
+          await dbConnect();
+        } catch (error: any) {
+          const appError = handleMongoDBError(error, "authorize.dbConnect");
+          logError(appError);
+          throw new Error("Database connection failed");
         }
 
-        const isCorrectPassword = await bcrypt.compare(
-          credentials.password,
-          user.password
-        );
+        try {
+          const user = await User.findOne({ email: credentials.email });
 
-        if (!isCorrectPassword) {
-          throw new Error("Invalid credentials");
+          if (!user || !user?.password) {
+            logError({
+              message: "User not found or missing password",
+              source: ErrorSource.AUTH,
+              severity: ErrorSeverity.WARNING,
+              code: "AUTH_USER_NOT_FOUND",
+              details: { email: credentials.email },
+              timestamp: new Date().toISOString(),
+            });
+            throw new Error("Invalid credentials");
+          }
+
+          const isCorrectPassword = await bcrypt.compare(
+            credentials.password,
+            user.password
+          );
+
+          if (!isCorrectPassword) {
+            logError({
+              message: "Incorrect password",
+              source: ErrorSource.AUTH,
+              severity: ErrorSeverity.WARNING,
+              code: "AUTH_INVALID_PASSWORD",
+              details: { email: credentials.email },
+              timestamp: new Date().toISOString(),
+            });
+            throw new Error("Invalid credentials");
+          }
+
+          logError({
+            message: "User authenticated successfully",
+            source: ErrorSource.AUTH,
+            severity: ErrorSeverity.INFO,
+            details: { 
+              userId: user._id.toString(),
+              email: user.email
+            },
+            timestamp: new Date().toISOString(),
+          });
+
+          return user;
+        } catch (error: any) {
+          if (error.message === "Invalid credentials") {
+            throw error; // Re-throw auth errors
+          }
+          const appError = handleMongoDBError(error, "authorize.findUser");
+          logError(appError);
+          throw new Error("Authentication failed");
         }
-
-        return user;
       },
     }),
   ],
@@ -81,80 +131,137 @@ export const authOptions: AuthOptions = {
     async signIn({ user, account, profile, email, credentials }) {
       try {
         // Log detailed information for debugging
-        console.log("Sign-in attempt:", { 
-          user: user?.email || user?.name,
-          provider: account?.provider,
-          accountId: account?.providerAccountId,
-          profile: !!profile
+        logError({
+          message: "Sign-in attempt",
+          source: ErrorSource.AUTH,
+          severity: ErrorSeverity.INFO,
+          details: { 
+            user: user?.email || user?.name,
+            provider: account?.provider,
+            accountId: account?.providerAccountId,
+            hasProfile: !!profile
+          },
+          timestamp: new Date().toISOString(),
         });
         
         // OAuth providers handling
         if (account && account.provider !== "credentials" && profile && user) {
           // We can still sync the profile in the background
           // but we won't pass it directly to avoid type issues
-          console.log("Syncing OAuth profile for user:", user.email);
+          logError({
+            message: "Syncing OAuth profile for user",
+            source: ErrorSource.AUTH,
+            severity: ErrorSeverity.INFO,
+            details: { 
+              email: user.email, 
+              provider: account.provider 
+            },
+            timestamp: new Date().toISOString(),
+          });
           
           // Make sure to actually call syncUserProfile
           try {
             await syncUserProfile(user as any, account, profile);
-          } catch (error) {
-            console.error("Error syncing user profile:", error);
+          } catch (error: any) {
+            const appError = handleAuthError(error, "syncUserProfile");
+            logError(appError);
           }
         }
         
         return true;
-      } catch (error) {
-        console.error("Error in signIn callback:", error);
+      } catch (error: any) {
+        const appError = handleAuthError(error, "signIn callback");
+        logError(appError);
         return true; // Still allow sign in even if custom logic fails
       }
     },
     async session({ session, token, user }) {
-      if (session.user) {
-        // Add the user ID to the session
-        session.user.id = token.sub || user?.id;
-        
-        // If we have access to the database user (through adapter session)
-        if (user) {
-          // Add custom user fields to session
-          // Using type assertion to bypass TypeScript error
-          const extendedSession = session as any;
-          extendedSession.user.username = (user as any).username || null;
+      try {
+        if (session.user) {
+          // Add the user ID to the session
+          session.user.id = token.sub || user?.id;
+          
+          // If we have access to the database user (through adapter session)
+          if (user) {
+            // Add custom user fields to session
+            // Using type assertion to bypass TypeScript error
+            const extendedSession = session as any;
+            extendedSession.user.username = (user as any).username || null;
+          }
         }
+        return session;
+      } catch (error: any) {
+        const appError = handleAuthError(error, "session callback");
+        logError(appError);
+        return session; // Return session even if there's an error
       }
-      return session;
     },
     async jwt({ token, user, account }) {
-      // Initial sign in
-      if (user) {
-        token.id = user.id;
-        token.provider = account?.provider;
-        // Also store username in the token if available
-        // Using type assertion to bypass TypeScript error
-        (token as any).username = (user as any).username || null;
+      try {
+        // Initial sign in
+        if (user) {
+          token.id = user.id;
+          token.provider = account?.provider;
+          // Also store username in the token if available
+          // Using type assertion to bypass TypeScript error
+          (token as any).username = (user as any).username || null;
+        }
+        return token;
+      } catch (error: any) {
+        const appError = handleAuthError(error, "jwt callback");
+        logError(appError);
+        return token; // Return token even if there's an error
       }
-      return token;
     }
   },
   pages: {
     signIn: "/login",
     error: "/error", // Point to our custom error page
   },
-  debug: true,
+  debug: process.env.NODE_ENV === "development",
   session: {
     strategy: "jwt",
   },
   events: {
     async createUser(message) {
       // Log when a user is created
-      console.log("User created:", message);
+      logError({
+        message: "User created via OAuth",
+        source: ErrorSource.AUTH,
+        severity: ErrorSeverity.INFO,
+        details: { 
+          userId: message.user.id,
+          email: message.user.email
+        },
+        timestamp: new Date().toISOString(),
+      });
     },
     async linkAccount(message) {
       // Log when an account is linked
-      console.log("Account linked:", message);
+      logError({
+        message: "Account linked",
+        source: ErrorSource.AUTH,
+        severity: ErrorSeverity.INFO,
+        details: { 
+          userId: message.user.id,
+          provider: message.account.provider
+        },
+        timestamp: new Date().toISOString(),
+      });
     },
     async signIn(message) {
       // Log successful sign-ins
-      console.log("User signed in:", message);
+      logError({
+        message: "User signed in",
+        source: ErrorSource.AUTH,
+        severity: ErrorSeverity.INFO,
+        details: { 
+          userId: message.user.id,
+          email: message.user.email,
+          provider: message.account?.provider || "credentials"
+        },
+        timestamp: new Date().toISOString(),
+      });
     },
   },
   secret: process.env.NEXTAUTH_SECRET,

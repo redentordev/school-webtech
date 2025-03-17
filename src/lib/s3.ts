@@ -1,6 +1,7 @@
 import { S3Client, PutObjectCommand, DeleteObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { v4 as uuidv4 } from 'uuid';
+import { handleS3Error, logError, ErrorSeverity, ErrorSource } from './error-utils';
 
 // Initialize S3 client
 const s3Client = new S3Client({
@@ -15,11 +16,20 @@ const bucketName = process.env.AWS_S3_BUCKET_NAME!;
 
 // Validate environment variables
 if (!process.env.AWS_REGION || !process.env.AWS_ACCESS_KEY_ID || !process.env.AWS_SECRET_ACCESS_KEY || !bucketName) {
-  console.error('Missing required AWS environment variables:', {
+  const missingVars = {
     region: !!process.env.AWS_REGION,
     accessKey: !!process.env.AWS_ACCESS_KEY_ID,
     secretKey: !!process.env.AWS_SECRET_ACCESS_KEY,
     bucketName: !!bucketName
+  };
+  
+  logError({
+    message: 'Missing required AWS environment variables',
+    source: ErrorSource.S3_STORAGE,
+    severity: ErrorSeverity.CRITICAL,
+    code: 'S3_ENV_MISSING',
+    details: missingVars,
+    timestamp: new Date().toISOString()
   });
 }
 
@@ -30,28 +40,51 @@ if (!process.env.AWS_REGION || !process.env.AWS_ACCESS_KEY_ID || !process.env.AW
  * @returns Object containing the upload URL and the key (filename) in S3
  */
 export async function generateUploadURL(fileType: string, folder: string = 'uploads') {
-  // Validate file type
-  if (!fileType.startsWith('image/')) {
-    throw new Error('Only image files are allowed');
+  try {
+    // Validate file type
+    if (!fileType.startsWith('image/')) {
+      const error = {
+        message: 'Only image files are allowed',
+        source: ErrorSource.S3_STORAGE,
+        severity: ErrorSeverity.WARNING,
+        code: 'S3_INVALID_FILE_TYPE',
+        details: { fileType },
+        timestamp: new Date().toISOString()
+      };
+      logError(error);
+      throw new Error(error.message);
+    }
+
+    // Get file extension from MIME type
+    const fileExtension = fileType.split('/')[1];
+    const key = `${folder}/${uuidv4()}.${fileExtension}`;
+    
+    const putObjectParams = {
+      Bucket: bucketName,
+      Key: key,
+      ContentType: fileType,
+    };
+
+    const command = new PutObjectCommand(putObjectParams);
+    const uploadURL = await getSignedUrl(s3Client, command, { expiresIn: 60 * 15 }); // URL expires in 15 minutes
+
+    logError({
+      message: 'Upload URL generated successfully',
+      source: ErrorSource.S3_STORAGE,
+      severity: ErrorSeverity.INFO,
+      details: { key, fileType, folder },
+      timestamp: new Date().toISOString()
+    });
+
+    return {
+      uploadURL,
+      key,
+    };
+  } catch (error: any) {
+    const appError = handleS3Error(error, 'generateUploadURL');
+    logError(appError);
+    throw new Error(appError.message);
   }
-
-  // Get file extension from MIME type
-  const fileExtension = fileType.split('/')[1];
-  const key = `${folder}/${uuidv4()}.${fileExtension}`;
-  
-  const putObjectParams = {
-    Bucket: bucketName,
-    Key: key,
-    ContentType: fileType,
-  };
-
-  const command = new PutObjectCommand(putObjectParams);
-  const uploadURL = await getSignedUrl(s3Client, command, { expiresIn: 60 * 15 }); // URL expires in 15 minutes (increased from 5)
-
-  return {
-    uploadURL,
-    key,
-  };
 }
 
 /**
@@ -61,23 +94,45 @@ export async function generateUploadURL(fileType: string, folder: string = 'uplo
  * @returns The presigned URL for viewing the object
  */
 export async function generateViewURL(key: string, expiresIn: number = 7200) { // Increased to 2 hours
-  console.log(`Generating view URL for key: ${key}`);
-  console.log(`Using bucket: ${bucketName}`);
-  console.log(`AWS Region: ${process.env.AWS_REGION}`);
-  console.log(`Access Key ID (first 4 chars): ${process.env.AWS_ACCESS_KEY_ID?.substring(0, 4)}***`);
-  
   if (!key) {
-    throw new Error('Key is required to generate view URL');
+    const error = {
+      message: 'Key is required to generate view URL',
+      source: ErrorSource.S3_STORAGE,
+      severity: ErrorSeverity.WARNING,
+      code: 'S3_MISSING_KEY',
+      timestamp: new Date().toISOString()
+    };
+    logError(error);
+    throw new Error(error.message);
   }
   
   if (!bucketName) {
-    throw new Error('S3 bucket name is not configured');
+    const error = {
+      message: 'S3 bucket name is not configured',
+      source: ErrorSource.S3_STORAGE,
+      severity: ErrorSeverity.CRITICAL,
+      code: 'S3_MISSING_BUCKET',
+      timestamp: new Date().toISOString()
+    };
+    logError(error);
+    throw new Error(error.message);
   }
   
   try {
     // Normalize the key to handle URL encoding issues
     const normalizedKey = key.startsWith('/') ? key.substring(1) : key;
-    console.log(`Normalized key: ${normalizedKey}`);
+    logError({
+      message: 'Generating view URL',
+      source: ErrorSource.S3_STORAGE,
+      severity: ErrorSeverity.INFO,
+      details: { 
+        key: normalizedKey, 
+        bucket: bucketName,
+        region: process.env.AWS_REGION,
+        expiresIn
+      },
+      timestamp: new Date().toISOString()
+    });
     
     const params = {
       Bucket: bucketName,
@@ -87,40 +142,51 @@ export async function generateViewURL(key: string, expiresIn: number = 7200) { /
     // First check if the object exists
     try {
       const command = new GetObjectCommand(params);
-      console.log('GetObjectCommand created, generating signed URL...');
       const url = await getSignedUrl(s3Client, command, { 
         expiresIn,
       });
-      
-      console.log(`Generated presigned URL (first 50 chars): ${url.substring(0, 50)}...`);
-      console.log(`URL expires in: ${expiresIn} seconds`);
       
       // Add cache control parameters to the URL
       const urlWithCacheControl = new URL(url);
       urlWithCacheControl.searchParams.append('response-cache-control', 'no-cache, no-store, must-revalidate');
       urlWithCacheControl.searchParams.append('response-content-disposition', 'inline');
       
+      logError({
+        message: 'Generated presigned URL successfully',
+        source: ErrorSource.S3_STORAGE,
+        severity: ErrorSeverity.INFO,
+        details: { 
+          key: normalizedKey,
+          urlLength: url.length,
+          expiresIn
+        },
+        timestamp: new Date().toISOString()
+      });
+      
       return urlWithCacheControl.toString();
     } catch (error: any) {
-      console.error(`Error generating presigned URL for ${normalizedKey}:`, error);
-      console.error(`Error name: ${error.name}, code: ${error.code}, message: ${error.message}`);
-      if (error.$metadata) {
-        console.error(`Error metadata: ${JSON.stringify(error.$metadata)}`);
-      }
+      const appError = handleS3Error(error, `generateViewURL for ${normalizedKey}`);
+      logError(appError);
       throw error;
     }
   } catch (error: any) {
-    console.error('Error generating presigned URL:', error);
-    console.error(`Error details: ${JSON.stringify(error)}`);
+    const appError = handleS3Error(error, 'generateViewURL');
+    logError(appError);
     
     // Try to use a public URL as fallback
     try {
       const publicUrl = getPublicURL(key);
-      console.log(`Falling back to public URL: ${publicUrl}`);
+      logError({
+        message: 'Falling back to public URL',
+        source: ErrorSource.S3_STORAGE,
+        severity: ErrorSeverity.WARNING,
+        details: { key, publicUrl },
+        timestamp: new Date().toISOString()
+      });
       return publicUrl;
     } catch (fallbackError: any) {
-      console.error('Error generating fallback public URL:', fallbackError);
-      console.error(`Fallback error details: ${JSON.stringify(fallbackError)}`);
+      const fallbackAppError = handleS3Error(fallbackError, 'getPublicURL fallback');
+      logError(fallbackAppError);
       throw error; // Throw the original error
     }
   }
@@ -133,7 +199,19 @@ export async function generateViewURL(key: string, expiresIn: number = 7200) { /
  */
 export function getPublicURL(key: string) {
   if (!bucketName || !process.env.AWS_REGION) {
-    throw new Error('S3 bucket name or region is not configured');
+    const error = {
+      message: 'S3 bucket name or region is not configured',
+      source: ErrorSource.S3_STORAGE,
+      severity: ErrorSeverity.CRITICAL,
+      code: 'S3_MISSING_CONFIG',
+      details: { 
+        hasBucketName: !!bucketName, 
+        hasRegion: !!process.env.AWS_REGION 
+      },
+      timestamp: new Date().toISOString()
+    };
+    logError(error);
+    throw new Error(error.message);
   }
   
   // Normalize the key
@@ -149,7 +227,15 @@ export function getPublicURL(key: string) {
  */
 export async function deleteObject(key: string) {
   if (!key) {
-    throw new Error('Key is required to delete object');
+    const error = {
+      message: 'Key is required to delete object',
+      source: ErrorSource.S3_STORAGE,
+      severity: ErrorSeverity.WARNING,
+      code: 'S3_MISSING_KEY',
+      timestamp: new Date().toISOString()
+    };
+    logError(error);
+    throw new Error(error.message);
   }
   
   const params = {
@@ -160,9 +246,16 @@ export async function deleteObject(key: string) {
   try {
     const command = new DeleteObjectCommand(params);
     await s3Client.send(command);
-    console.log(`Successfully deleted object with key: ${key}`);
-  } catch (error) {
-    console.error(`Error deleting object with key ${key}:`, error);
-    throw error;
+    logError({
+      message: 'Successfully deleted object',
+      source: ErrorSource.S3_STORAGE,
+      severity: ErrorSeverity.INFO,
+      details: { key },
+      timestamp: new Date().toISOString()
+    });
+  } catch (error: any) {
+    const appError = handleS3Error(error, `deleteObject for ${key}`);
+    logError(appError);
+    throw new Error(appError.message);
   }
 } 

@@ -4,6 +4,7 @@ import { Inter } from 'next/font/google';
 import { AuthProvider } from '@/components/auth/AuthProvider';
 import { SWRProvider } from '@/providers/SWRProvider';
 import { S3ImageProvider } from '@/contexts/S3ImageContext';
+import { ErrorProvider, ErrorBoundary } from '@/contexts/ErrorContext';
 
 const inter = Inter({ subsets: ['latin'] });
 
@@ -20,13 +21,17 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={inter.className}>
-        <AuthProvider>
-          <SWRProvider>
-            <S3ImageProvider>
-              <main>{children}</main>
-            </S3ImageProvider>
-          </SWRProvider>
-        </AuthProvider>
+        <ErrorProvider>
+          <ErrorBoundary>
+            <AuthProvider>
+              <SWRProvider>
+                <S3ImageProvider>
+                  <main>{children}</main>
+                </S3ImageProvider>
+              </SWRProvider>
+            </AuthProvider>
+          </ErrorBoundary>
+        </ErrorProvider>
       </body>
     </html>
   );

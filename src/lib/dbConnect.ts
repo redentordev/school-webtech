@@ -1,11 +1,18 @@
 import mongoose from "mongoose";
+import { logError, ErrorSeverity, ErrorSource, handleMongoDBError } from './error-utils';
 
 const MONGODB_URI = process.env.MONGODB_URI;
 
 if (!MONGODB_URI) {
-  throw new Error(
-    "Please define the MONGODB_URI environment variable inside .env.local"
-  );
+  const error = {
+    message: "Please define the MONGODB_URI environment variable inside .env.local",
+    source: ErrorSource.DATABASE,
+    severity: ErrorSeverity.CRITICAL,
+    code: 'DB_MISSING_URI',
+    timestamp: new Date().toISOString()
+  };
+  logError(error);
+  throw new Error(error.message);
 }
 
 /**
@@ -44,19 +51,45 @@ async function dbConnect() {
       // Don't add any conflicting options
     };
 
-    cached.promise = mongoose.connect(MONGODB_URI!, opts).then(() => {
-      return mongoose;
+    // Log connection attempt
+    logError({
+      message: "Attempting to connect to MongoDB with Mongoose",
+      source: ErrorSource.DATABASE,
+      severity: ErrorSeverity.INFO,
+      details: {
+        environment: process.env.NODE_ENV,
+        usingTLS: opts.tls,
+      },
+      timestamp: new Date().toISOString()
     });
+
+    cached.promise = mongoose.connect(MONGODB_URI!, opts)
+      .then((mongoose) => {
+        logError({
+          message: "Successfully connected to MongoDB with Mongoose",
+          source: ErrorSource.DATABASE,
+          severity: ErrorSeverity.INFO,
+          timestamp: new Date().toISOString()
+        });
+        return mongoose;
+      })
+      .catch((error) => {
+        // Log connection error
+        const appError = handleMongoDBError(error, "mongoose.connect");
+        logError(appError);
+        throw error;
+      });
   }
   
   try {
     cached.conn = await cached.promise;
-  } catch (e) {
+    return cached.conn;
+  } catch (error: any) {
     cached.promise = null;
-    throw e;
+    const appError = handleMongoDBError(error, "dbConnect cached.promise");
+    logError(appError);
+    throw error;
   }
-
-  return cached.conn;
 }
 
 export default dbConnect; 
