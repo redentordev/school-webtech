@@ -7,12 +7,12 @@ import { AppError, ErrorSeverity, ErrorSource } from './error-utils';
 
 // Enable/disable different log types based on environment
 const LOG_CONFIG = {
-  ALL: process.env.NODE_ENV !== 'production',
+  ALL: true,
   ERRORS: true,
-  WARNINGS: process.env.NODE_ENV !== 'production',
-  INFO: process.env.NODE_ENV !== 'production',
-  DEBUG: process.env.NODE_ENV === 'development',
-  PERFORMANCE: process.env.NODE_ENV !== 'production',
+  WARNINS: true,
+  INFO: true,
+  DEBUG: true,
+  PERFORMANCE: true,
 };
 
 // Use colors in development for better readability
